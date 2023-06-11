@@ -1,0 +1,65 @@
+{
+  "builder_name": "xsum",
+  "citation": "\n@article{Narayan2018DontGM,\n  title={Don't Give Me the Details, Just the Summary! Topic-Aware Convolutional Neural Networks for Extreme Summarization},\n  author={Shashi Narayan and Shay B. Cohen and Mirella Lapata},\n  journal={ArXiv},\n  year={2018},\n  volume={abs/1808.08745}\n}\n",
+  "config_name": "default",
+  "dataset_size": 532255381,
+  "description": "\nExtreme Summarization (XSum) Dataset.\n\nThere are three features:\n  - document: Input news article.\n  - summary: One sentence summary of the article.\n  - id: BBC ID of the article.\n\n",
+  "download_checksums": {
+    "data/XSUM-EMNLP18-Summary-Data-Original.tar.gz": {
+      "num_bytes": 254582292,
+      "checksum": null
+    },
+    "https://raw.githubusercontent.com/EdinburghNLP/XSum/master/XSum-Dataset/XSum-TRAINING-DEV-TEST-SPLIT-90-5-5.json": {
+      "num_bytes": 2720574,
+      "checksum": null
+    }
+  },
+  "download_size": 257302866,
+  "features": {
+    "document": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "summary": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "id": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "https://github.com/EdinburghNLP/XSum/tree/master/XSum-Dataset",
+  "license": "",
+  "size_in_bytes": 789558247,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 479206363,
+      "num_examples": 204045,
+      "dataset_name": "xsum"
+    },
+    "validation": {
+      "name": "validation",
+      "num_bytes": 26292877,
+      "num_examples": 11332,
+      "dataset_name": "xsum"
+    },
+    "test": {
+      "name": "test",
+      "num_bytes": 26756141,
+      "num_examples": 11334,
+      "dataset_name": "xsum"
+    }
+  },
+  "supervised_keys": {
+    "input": "document",
+    "output": "summary"
+  },
+  "version": {
+    "version_str": "1.2.0",
+    "major": 1,
+    "minor": 2,
+    "patch": 0
+  }
+}
