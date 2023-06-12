@@ -5,4 +5,4 @@ Datasets:
 - CNN / DailyMail Datase: https://huggingface.co/datasets/cnn_dailymail
 
 Model:
-T5
+- pre-trained T5: https://huggingface.co/sysresearch101/t5-large-finetuned-xsum-cnn
