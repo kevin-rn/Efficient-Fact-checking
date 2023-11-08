@@ -1,13 +1,16 @@
 import os
-from datasets import load_dataset, load_from_disk
+import csv
+from datasets import load_dataset
 import faiss
+import json
 import logging
-import numpy as np
-from typing import List, Dict
-from torch import Tensor
+from typing import List, Dict, Tuple
+import torch
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 dir_path = os.path.dirname(os.path.realpath(__file__))
+dir_cohore_wiki = "../data/cohore_wiki"
 dir_faiss_idx = "../data/indices/faiss"
 
 
@@ -27,7 +30,7 @@ class FaissSearch:
         self.data = data
         self.ann = faiss.IndexFlatIP(self.emb_dim)
 
-    def get_top_n_neighbours(self, query_vector: Tensor, top_k: int) -> Dict:
+    def get_top_n_neighbours(self, query_vector: torch.Tensor, top_k: int) -> Dict:
         """
         Search for the top nearest neighbors to a given query vector.
 
@@ -74,6 +77,35 @@ class FaissSearch:
         faiss.write_index(self.ann, f"{dir_faiss_idx}/index_faiss")
 
 
+def cohore_wiki_docs() -> Tuple[List, List]:
+    # Create the directory if it doesn't exist
+    if not os.path.exists(dir_cohore_wiki):
+        os.makedirs(dir_cohore_wiki)
+
+    docs_stream = load_dataset(
+        "Cohere/wikipedia-22-12-simple-embeddings", split="train", streaming=True
+    )
+
+    doc_list = []
+    doc_embeds = []
+
+    try:
+        for doc in docs_stream:
+            doc_list.append(doc["text"])
+            doc_embeds.append(doc["emb"])
+
+        with open(f"{dir_cohore_wiki}/wiki_docs.json", "w+") as file:
+            json.dump(doc_list, file)
+
+    except Exception as e:
+        print("exception: ", e, "at ", doc["id"])
+
+    doc_embeds = torch.tensor(doc_embeds)
+    torch.save(doc_embeds, f"{dir_cohore_wiki}/wiki_embeddings.pt")
+
+    return doc_list, doc_embeds
+
+
 def main():
     """
     The main function for setting up and using the FaissSearch class.
@@ -84,26 +116,25 @@ def main():
     3. Attempts to load an existing Faiss index, and if not available, creates one.
 
     """
-
     # Download Wikipedia data if not available
-    if not os.path.exists("../data/cohore_wiki_dataset"):
-        dataset = load_dataset(
-            "Cohere/wikipedia-22-12-en-embeddings", cache_dir="../data/cache"
-        )
-        dataset.save_to_disk("../data/cohore_wiki_dataset")
-        dataset.cleanup_cache_files()
+    if not os.path.exists(f"{dir_cohore_wiki}/wiki_docs.json"):
+        doc_list, doc_emb = cohore_wiki_docs()
     else:
-        dataset = load_from_disk("../data/cohore_wiki_dataset")
+        with open(f"{dir_cohore_wiki}/wiki_docs.json") as file:
+            doc_list = json.load(file)
+        doc_emb = torch.load(f"{dir_cohore_wiki}/wiki_embeddings.pt")
 
-    dataset = dataset["train"]
-    text_data = dataset["text"]
-    passage_vectors = [np.array(row) for row in dataset["emb"]]
-    passage_vectors = np.vstack(passage_vectors)
+    # docs_stream = load_dataset("Cohere/wikipedia-22-12-en-embeddings")
+    # dataset = dataset["train"]
+    # text_data = dataset["text"]
+    # passage_vectors = [np.array(row) for row in dataset["emb"]]
+    # passage_vectors = np.vstack(passage_vectors)
 
-    emb_dim = passage_vectors.shape[1]
-    faiss_search = FaissSearch(text_data, emb_dim)
+    emb_dim = doc_emb.shape[-1]
+
+    faiss_search = FaissSearch(doc_list, emb_dim)
     if not faiss_search.load_index_if_available():
-        faiss_search.create_index(passage_vectors)
+        faiss_search.create_index(doc_emb)
 
 
 if __name__ == "__main__":
