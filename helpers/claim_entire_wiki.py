@@ -156,14 +156,14 @@ def construct_db_file():
                 wiki_article = json.loads(line)
                 title = wiki_article["title"]
                 fact_text = wiki_article["fact_text"]
-                for paragraph in fact_text:
-                    doc_text = " ".join(paragraph[1:])
-                    cursor.execute(
-                        """
-                        INSERT INTO documents (id, text) VALUES (?, ?)
-                    """,
-                        (title, doc_text),
-                    )
+                paragraphs = [" ".join(sub_list) for sub_list in fact_text[1:]]
+                doc_text = " ".join(paragraphs)
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO documents (id, text) VALUES (?, ?)
+                """,
+                    (title, doc_text),
+                )
 
         conn.commit()
     conn.close()
