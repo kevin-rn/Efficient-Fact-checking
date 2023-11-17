@@ -135,7 +135,7 @@ def claim_detect_all_bz2():
 
 
 def construct_db_file():
-    conn = sqlite3.connect("../data/wiki_wo_links_new.db")
+    conn = sqlite3.connect("../data/wiki_wo_links2.db")
     cursor = conn.cursor()
 
     cursor.execute(
@@ -156,8 +156,14 @@ def construct_db_file():
                 wiki_article = json.loads(line)
                 title = wiki_article["title"]
                 fact_text = wiki_article["fact_text"]
-                paragraphs = [" ".join(sub_list) for sub_list in fact_text[1:]]
-                doc_text = " ".join(paragraphs)
+
+                paragraphs = []
+                for para in fact_text[1:]:
+                    if para:
+                        paragraphs = para
+                        break
+
+                doc_text = "[SENT]".join(paragraphs)
                 cursor.execute(
                     """
                     INSERT OR IGNORE INTO documents (id, text) VALUES (?, ?)
