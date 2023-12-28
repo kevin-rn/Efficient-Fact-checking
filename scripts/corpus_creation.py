@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 class CorpusCreator:
-    def __init__(self, data_dir):
+    def __init__(self, data_dir="data/QA-dataset/data"):
         """
         Initialize a CorpusCreator object with the specified data directory.
 
@@ -13,7 +13,7 @@ class CorpusCreator:
         self.df_wiki_corpus = None
         self.df_musique_corpus = None
 
-    def read_wiki_data(self):
+    def __read_wiki_data(self):
         """
         Load 2WikiMultiHopQA data and preprocess it.
         """
@@ -30,7 +30,7 @@ class CorpusCreator:
         )
         self.df_wiki_corpus.drop_duplicates(ignore_index=True, inplace=True)
 
-    def read_musique_data(self):
+    def __read_musique_data(self):
         """
         Load MuSiQueQA data and preprocess it.
         """
@@ -60,25 +60,16 @@ class CorpusCreator:
         """
         Combine the two corpora into a single corpus, shuffle it, and save it as an npy file.
         """
-        if self.df_wiki_corpus is not None and self.df_musique_corpus is not None:
-            df_corpus = pd.concat(
-                [self.df_wiki_corpus.astype(str), self.df_musique_corpus.astype(str)]
-            )
-            df_corpus = df_corpus.sample(frac=1, random_state=42)
-            df_corpus = df_corpus.reset_index(drop=True)
+        self.__read_wiki_data()
+        self.__read_musique_data()
+        df_corpus = pd.concat(
+            [self.df_wiki_corpus.astype(str), self.df_musique_corpus.astype(str)]
+        )
+        df_corpus = df_corpus.sample(frac=1, random_state=42)
+        df_corpus = df_corpus.reset_index(drop=True)
 
-            np_corpus = df_corpus.to_numpy()
-            for i in range(len(np_corpus):
-                np_corpus[i] = np_corpus[i].encode()
+        np_corpus = df_corpus.to_numpy()
+        for i in range(len(np_corpus)):
+            np_corpus[i] = np_corpus[i].encode()
 
-            np.save("data/wikimusique_corpus.npy", np_corpus)
-
-def main():
-    ccreator = CorpusCreator(data_dir="data/QA-dataset/data")
-    ccreator.read_wiki_data()
-    ccreator.read_musique_data()
-    ccreator.create_corpus()
-    print("Finished creating the corpus")
-
-if __name__ == "__main__":
-    main()
+        np.save("data/wikimusique_corpus.npy", np_corpus)

@@ -1,4 +1,10 @@
 data/
-out/
+results/
+baselines/hover/data/
+baselines/hover/out/
+baselines/unq/notebooks/data/
 models/
+out/
+**/__pycache__/
+**apicache-py3/
 .vscode/settings.json
