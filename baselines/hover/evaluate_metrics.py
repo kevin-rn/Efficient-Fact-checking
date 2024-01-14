@@ -1,10 +1,10 @@
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 import json
 import os
-from typing import List, Dict
+from typing import List, Any
 import pandas as pd
 
-def read_data(predict_file: str, label_file: str) -> tuple[List[int], List[int]]:
+def read_data(predict_file: str, label_file: str) -> Any:
     """
     Args:
         - predict_file (str): File containing the predicted labels for each claim.
@@ -23,7 +23,7 @@ def read_data(predict_file: str, label_file: str) -> tuple[List[int], List[int]]
         df_pred['uid'] = data_dict.keys()
 
     df_labels = pd.read_json(label_file)
-    df_labels = df_labels[['uid', 'claim', 'label', 'context']]
+    df_labels = df_labels[['uid', 'claim', 'label']]
     merge_df = pd.merge(df_pred, df_labels, on=['uid', 'claim'])
 
     # Convert labels to list concisting of 0's (Not supported) or 1's (Supported)
@@ -43,16 +43,24 @@ def metrics(true_labels: List[int], pred_labels: List[int]) -> None:
     acc = accuracy_score(true_labels, pred_labels)
     prec, rec, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average="binary")
     results = {"acc": acc, "f1": f1, "prec": prec, "rec": rec}
-    results = {k: f"{v*100:.02f}" for k, v in results.items()}
-    print(',   '.join([f'{k}: {v}%' for k,v in results.items()]))
-
+    results = {k: v*100 for k, v in results.items()}
+    return results
 
 def main():
-    # checkpoints = [os.path.join(args.output_dir, 'checkpoint-'+args.ckpt_to_evaluate)]
-    predict = os.path.join("out", "hover", "exp1.0", "claim_verification", "checkpoint-2000", "dev_predictions_.json")
-    labels = os.path.join("data", "hover_files", "claim_detect", "hover-cite-full", "doc_retrieval", "hover_dev_doc_retrieval.json")
-    true_labels, pred_labels = read_data(predict_file=predict, label_file=labels)
-    metrics(true_labels=true_labels, pred_labels=pred_labels)
+    checkpoints = [str(num) for num in range(100, 3100, 100)]
+    labels = os.path.join("data", "hover", "hover_dev_release_v1.1.json")
+
+    results = []
+    for check in checkpoints:
+        predict = os.path.join("out", "hover", "exp1.0", "claim_verification", 'checkpoint-'+ check, "dev_predictions_.json")
+        true_labels, pred_labels = read_data(predict_file=predict, label_file=labels)
+        check_result = metrics(true_labels=true_labels, pred_labels=pred_labels)
+        # print(f'Checkpoint-{check}' ,',    '.join([f'{k}: {v:.2f}%' for k,v in check_result.items()]))
+        results.append(check_result)
+
+    high_score = max(results, key=lambda x: x['acc'])
+    checkpoint = checkpoints[results.index(high_score)]
+    print(f'\nCheckpoint-{checkpoint}' ,',    '.join([f'{k}: {v:.2f}%' for k,v in high_score.items()]))
 
 if __name__ == "__main__":
     main()

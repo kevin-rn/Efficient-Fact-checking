@@ -3,6 +3,7 @@ results/
 baselines/hover/data/
 baselines/hover/out/
 baselines/unq/notebooks/data/
+baselines/stanford-corenlp-4.5.5/
 models/
 out/
 **/__pycache__/

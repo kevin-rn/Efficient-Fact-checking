@@ -45,13 +45,19 @@ def main():
         action="store_true"
     )
 
+    parser.add_argument(
+        "--modified",
+        action='store_true'
+    )
+
     args = parser.parse_args()
     wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
     args.data_dir = os.path.join(args.data_dir, args.dataset_name)
 
     hover_data = json.load(open(os.path.join(args.data_dir, 'hover_'+args.data_split+'_release_v1.1.json')))
-    tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'tfidf_retrieved', args.data_split+'_tfidf_doc_retrieval_results.json')))
+    # tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'tfidf_retrieved', args.data_split+'_tfidf_doc_retrieval_results.json')))
+    tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'bm25_retrieved', args.data_split+'_bm25_doc_retrieval_results.json')))
 
     uid_to_tfidf_retrieved_doc = {}
     for e in tfidf_retrieved_doc:
@@ -74,40 +80,35 @@ def main():
 
             if args.oracle:
                 for doc_title in golden_docs:
-                    para = wiki_db.execute("SELECT * FROM documents WHERE id=(?)", \
-                                                (unicodedata.normalize('NFD', doc_title),)).fetchall()
-                    if para:
-                        context.append(list(para[0]))
-                        labels.append(1)
+                    para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
+                                                (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
+                    context.append(list(para))
+                    labels.append(1)
 
-            # for doc_title in retrieved_docs[:20]:
-            #     if args.oracle and doc_title in golden_docs:
-            #         continue
-            #     para = wiki_db.execute("SELECT * FROM documents WHERE id=(?)", \
-            #                                     (unicodedata.normalize('NFD', doc_title),)).fetchall()
-            #     if para:
-                    # context.append(list(para[0]))
-                    # if doc_title in golden_docs:
-                    #     labels.append(1)
-                    # else:
-                    #     labels.append(0)
-
-
-            # Modified
-            for doc_title in retrieved_docs[:20]:
-                if args.oracle and doc_title in golden_docs:
-                    continue
-                para = wiki_db.execute("SELECT * FROM documents WHERE id=(?)", \
-                                                (unicodedata.normalize('NFD', doc_title),)).fetchall()
-                if para:
-                    paragraphs = para[0]
-                    title = str(paragraphs[0]) # skip title
+            if args.modified:
+                for doc_title in retrieved_docs[:20]:
+                    if args.oracle and doc_title in golden_docs:
+                        continue
+                    para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
+                                                    (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
+                    title = str(para[0]) # skip title
 
                     # New wiki db containing only claims
-                    sentences = [sent.strip() for sent in paragraphs[1].split('[SENT]') if sent]
+                    sentences = [sent.strip() for sent in para[1].split('[SENT]') if sent]
                     sentences.insert(0, title)
                     context.append(sentences)
 
+                    if doc_title in golden_docs:
+                        labels.append(1)
+                    else:
+                        labels.append(0)
+            else:
+                for doc_title in retrieved_docs[:20]:
+                    if args.oracle and doc_title in golden_docs:
+                        continue
+                    para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
+                                                    (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
+                    context.append(list(para.replace("[SENT]", "")))
                     if doc_title in golden_docs:
                         labels.append(1)
                     else:
@@ -132,6 +133,6 @@ def main():
 
 if __name__ == "__main__":
     import sys
-    sys.path.append(sys.path[0] + '/../../..')
+    sys.path.append(sys.path[0] + '/../..')
     from scripts.monitor_utils import monitor
     monitor(main)

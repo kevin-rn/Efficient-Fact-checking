@@ -1,20 +1,30 @@
 # Grounding-LM
 
+Follow below instructions for running our adjustments. Please note that these include placeholder for names in capital letters (e.g. FOLDER_NAME) or between square brackets are either the functions options (e.g. cite, wice) or optional arguments (e.g. --first_paragraph_only) for the scripts.
+### Processing English Wikipedia corpus:
+* Performing claim extraction methods:
+```
+python enwiki_processing.py --start_location=FOLDER_NAME --end_location=FOLDER_NAME_2 --process_function=[claimbuster | claimbuster_current | wice | cite] [--first_paragraph_only]  
+```
+* Generating embeddings for the claim extracted version or original:
+```
+python enwiki_processing.py --start_location=FOLDER_NAME_2 --end_location=FOLDER_NAME_3 --process_function=[generate_embed | generate_embed_original] [--first_paragraph_only]
+```
+* Print raw size of the corpus (just the wikipedia article title and text)
+```
+python enwiki_processing.py --start_location=FOLDER_NAME --end_location=FOLDER_NAME_2 --process_function=print_raw_size
+```
 
-## Datasets:
-- XSum: https://huggingface.co/datasets/xsum  
-- CNN / DailyMail Datase: https://huggingface.co/datasets/cnn_dailymail  
+### Create Database for HoVer pipeline:
+* Generate database file for HoVer pipeline
+```
+python database_creation.py --setting=FOLDER_NAME_ --db_function=[] [--first_paragraph_only] [--include_embed]
+```
 
-## Models:
 
-Generative models:
-- pre-trained T5: https://huggingface.co/sysresearch101/t5-large-finetuned-xsum-cnn  
-- pre-trained BART: https://huggingface.co/facebook/bart-large-xsum  
 
-Word Embeddings: https://huggingface.co/sentence-transformers/paraphrase-MiniLM-L6-v2  
-Claim-detection: https://huggingface.co/Nithiwat/bert-base_claimbuster  
-Fact-check: https://huggingface.co/Dzeniks/roberta-fact-check  
-NN index library Annoy: https://github.com/spotify/annoy  
+
+
 ## Coding Practices
 
 ### Auto-formatting code

@@ -68,7 +68,15 @@ class ElasticSearch(object):
         if not self.index_name.islower():
             raise ValueError('Invalid Elasticsearch Index, must be lowercase')
         
-    
+    def get_index_size(self):
+        """"
+        Returns size of index in bytes.
+        """
+        index_stats = self.es.indices.stats(index=self.index_name)
+        if index_stats and 'indices' in index_stats:
+            size_in_bytes = index_stats['indices'][self.index_name]['total']['store']['size_in_bytes']
+            return size_in_bytes
+
     def create_index(self):
         """Create Elasticsearch Index
         """

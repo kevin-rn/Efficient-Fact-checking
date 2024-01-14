@@ -29,6 +29,9 @@ import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
+import sys
+sys.path.append(sys.path[0] + '/../..')
+from scripts.monitor_utils import monitor
 
 from transformers import (
     WEIGHTS_NAME,
@@ -487,9 +490,9 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
         else:
             processor = HoverV1Processor()
             if evaluate:
-                examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
+                examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file, is_modified=args.modified)
             else:
-                examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
+                examples = processor.get_train_examples(args.data_dir, filename=args.train_file, is_modified=args.modified)
 
         features, dataset = hover_convert_examples_to_features(
             examples=examples,
@@ -645,7 +648,7 @@ def main():
 
     parser.add_argument("--per_gpu_train_batch_size", default=8, type=int, help="Batch size per GPU/CPU for training.")
     parser.add_argument(
-        "--per_gpu_eval_batch_size", default=8, type=int, help="Batch size per GPU/CPU for evaluation."
+        "--per_gpu_eval_batch_size", default=1, type=int, help="Batch size per GPU/CPU for evaluation."
     )
     parser.add_argument("--learning_rate", default=5e-5, type=float, help="The initial learning rate for Adam.")
     parser.add_argument(
@@ -735,6 +738,9 @@ def main():
     )
     parser.add_argument(
         "--ckpt_to_evaluate", type=str, default="100"
+    )
+    parser.add_argument(
+        "--modified", action='store_true'
     )
     args = parser.parse_args()
 
@@ -924,7 +930,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
-    sys.path.append(sys.path[0] + '/../../..')
-    from scripts.monitor_utils import monitor
     monitor(main)

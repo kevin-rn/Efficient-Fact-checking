@@ -11,6 +11,10 @@ from StanfordNLP import StanfordNLP
 corenlp = StanfordNLP()
 from tqdm import tqdm
 
+import sys
+sys.path.append(sys.path[0] + '/../..')
+from scripts.monitor_utils import monitor
+
 
 def connect_to_db(db_path):
     conn = sqlite3.connect(db_path)
@@ -59,6 +63,11 @@ def main():
         action="store_true"
     )
 
+    parser.add_argument(
+        "--modified",
+        action='store_true'
+    )
+
     args = parser.parse_args()
     wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
@@ -97,20 +106,23 @@ def main():
 
                 for title in pred_titles:
                     try:
-                        para = wiki_db.execute("SELECT * FROM documents WHERE id=(?)", \
-                                                        (unicodedata.normalize('NFD', title),)).fetchall()
-                        if para:
-                            para_title, para_text = list(para[0])
-                            para_parse = corenlp.annotate(para_text)
-                            para_sents = []
-                            for sent_parse in para_parse['sentences']:
-                                start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
-                                end_idx = sent_parse['tokens'][-1]['characterOffsetEnd']
-                                sent = para_text[start_idx:end_idx]
-                                para_sents.append(sent)
-                            context.append([title, para_sents])
+                        para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
+                                                        (unicodedata.normalize('NFD', title),)).fetchall()[0]
+                        para_title, para_text = list(para)
+                        # Replace [SENT] tokens with spaces
+                        if args.modified:
+                            para_text = str(para_text).replace("[SENT]", "")
+                        para_parse = corenlp.annotate(para_text)
+                        para_sents = []
+                        for sent_parse in para_parse['sentences']:
+                            start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
+                            end_idx = sent_parse['tokens'][-1]['characterOffsetEnd']
+                            sent = para_text[start_idx:end_idx]
+                            para_sents.append(sent)
+                        context.append([title, para_sents])
                     except ValueError:
                         continue
+
                 dp = {'id': uid, 'claim': claim, 'context': context, 'supporting_facts': supporting_facts}
                 data_for_sent_ret.append(dp)
                 # data_for_sent_ret_dict[uid] = dp
@@ -131,7 +143,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
-    sys.path.append(sys.path[0] + '/../../..')
-    from scripts.monitor_utils import monitor
     monitor(main)

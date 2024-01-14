@@ -1,25 +1,22 @@
 from argparse import ArgumentParser
 import json
 from bm25_search import BM25Search
-from typing import List, Dict
+from typing import List, Dict, Tuple, Any
 import os
 import sqlite3
 import uuid
 import sys
 
-sys.path.append(sys.path[0] + '/../../..')
-from scripts.monitor_utils import monitor
+sys.path.append(sys.path[0] + '/../..')
+from scripts.monitor_utils import ProcessMonitor
 
 parser = ArgumentParser()
-
 parser.add_argument(
-   "--data_split",
-   default=None,
-   type=str,
-   required=True,
-   help="[train | dev ]",
+    "--db_name",
+    type=str,
+    default=None,
+    help="Name of the database files"
 )
-
 args = parser.parse_args()
 
 def get_corpus(db_path: str) -> tuple[Dict[str, Dict[str,str]], List[Dict[str, str]]]:
@@ -44,7 +41,7 @@ def get_corpus(db_path: str) -> tuple[Dict[str, Dict[str,str]], List[Dict[str, s
    conn.close()
    return corpus
 
-def get_queries(hover_claim_path) -> Dict[str, str]:
+def get_queries(hover_claim_path) -> Tuple[Dict[str, str], Any]:
    """
    Retrieves claim information from hover and creates a dictionary of claims.
 
@@ -59,25 +56,35 @@ def get_queries(hover_claim_path) -> Dict[str, str]:
       claim_json = json.load(json_file)
    for claim in claim_json:
       queries.update({claim['uid']: claim['claim']})
-      #print(queries)
    return queries, claim_json
 
-def search_and_retrieve(corpus_path: str, data_split: str) -> None:
+def search_and_retrieve(data_split: str, init_index: bool, batched: bool) -> None:
    """
    Retrieves top-100 documents for a given claim using BM-25 (ElasticSearch).
 
    Parameters:
-      - corpus_path (str): Path location to the wikipedia document corpus.
       - data_split (str): Name of the datasplit to process for e.g. train or dev.
    """
-   query_path = os.path.join("..", "data", "hover", f"hover_{data_split}_release_v1.1.json")
+   if args.db_name:
+      corpus_path = os.path.join("data", "db_files", f"wiki_wo_links-{args.db_name}.db")
+   else:
+      corpus_path = os.path.join("data", "wiki_wo_links.db")
+   query_path = os.path.join("data", "hover", f"hover_{data_split}_release_v1.1.json")
+
    corpus = get_corpus(corpus_path)
    queries, claim_list = get_queries(query_path)
 
-   # Batch size 1 to represent real-world inference time
-   bm25_search = BM25Search(index_name="hover",initialize=True, batch_size=1)
-   response = bm25_search.retrieve(corpus, queries, 100)
-
+   # Perform Indexing and retrieval
+   batch_size = 128 if batched else 1
+   bm25_search = BM25Search(index_name="hover", 
+                            initialize=init_index, 
+                            batch_size=batch_size, 
+                            corpus=corpus)
+   pm = ProcessMonitor()
+   pm.start()
+   response = bm25_search.retrieve(queries, 100)
+   pm.stop()
+   # Save to file
    bm25_doc_results = []
    for idx, (claim_uid, doc_results) in enumerate(response.items()):
       # Get claim information
@@ -103,22 +110,18 @@ def search_and_retrieve(corpus_path: str, data_split: str) -> None:
                     "doc_retrieval_results": [[doc_list, prob_list], support]}
       bm25_doc_results.append(json_claim)
 
-   result_path = os.path.join("..", "data", "hover", "bm25_retrieved", f"{data_split}_bm25_doc_retrieval_results.json")
+   result_path = os.path.join("data", "hover", "bm25_retrieved", f"{data_split}_bm25_doc_retrieval_results.json")
    with open(result_path, 'w', encoding="utf-8") as f:
       json.dump(bm25_doc_results, f)
+   
 
 
 def main():
-   # try:
-   #    enwiki_db = os.path.join("..", "data", "db_files", "cite", "wiki_wo_links-cite-full.db")
-   #    search_and_retrieve(enwiki_db, args.data_split)
-   # except Exception as e:
-   #    print(e)
-   j = 0
-   for i in range(5000):
-      j += i
-   print(j)
+   try:
+      # search_and_retrieve("train", init_index=True, batched=False)
+      search_and_retrieve("dev", init_index=False, batched=False)
+   except Exception as e:
+      print(e)
 
 if __name__ == "__main__":
-   # config = config_instance.get_all_params()
-   monitor(main)
+   main()

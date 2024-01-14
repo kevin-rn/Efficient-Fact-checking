@@ -107,6 +107,6 @@ def main():
 
 if __name__ == "__main__":
     import sys
-    sys.path.append(sys.path[0] + '/../../..')
+    sys.path.append(sys.path[0] + '/../..')
     from scripts.monitor_utils import monitor
     monitor(main)

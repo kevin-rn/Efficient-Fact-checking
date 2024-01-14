@@ -9,3 +9,5 @@ python3 run_hover.py \
 --max_seq_length 200  \
 --max_query_length 60  \
 --ckpt_to_evaluate 2000 
+
+python3 evaluate_metrics.py

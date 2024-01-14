@@ -20,7 +20,7 @@ os.environ["PYTHONWARNINGS"] = "ignore"
 def tqdm_joblib(tqdm_object: tqdm):
     """
     Context manager to patch joblib to report into tqdm progress bar given as argument
-    https://stackoverflow.com/questions/24983493/tracking-progress-of-joblib-parallel-execution
+    ref: https://stackoverflow.com/questions/24983493/tracking-progress-of-joblib-parallel-execution
 
     Parameters:
         tqdm_object (tqdm): tqdm object for multiprocessing.
@@ -38,7 +38,7 @@ def tqdm_joblib(tqdm_object: tqdm):
         joblib.parallel.BatchCompletionCallBack = old_batch_callback
         tqdm_object.close()
 
-def search_file_paths(dir: str) -> List[str]:
+def search_file_paths(dir: str, suffix: str = ".bz2") -> List[str]:
     """
     Retrieves all bz2 file paths within a specified directory.
 
@@ -52,7 +52,7 @@ def search_file_paths(dir: str) -> List[str]:
     for subdir, _, files in os.walk(dir):
         for file in files:
             bz2_filepath = os.path.join(subdir, file)
-            if bz2_filepath.endswith(".bz2"):
+            if bz2_filepath.endswith(suffix):
                 file_paths.append(bz2_filepath[len(dir) :])
     return file_paths
 

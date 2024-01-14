@@ -3,13 +3,23 @@ set -eu -o pipefail
 
 cd data
 
+mkdir -p db_files
+mkdir -p enwiki_files
+mkdir -p embed_files
+mkdir -p hover_files
+
 wget https://nlp.cs.unc.edu/data/hover/wiki_wo_links.db
+wget https://nlp.stanford.edu/projects/hotpotqa/enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2
+tar -xf enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2 -C enwiki_files
+rm enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2
+mv enwiki_files/enwiki-20171001-pages-meta-current-withlinks-processed enwiki_files/enwiki-2017-original
 
 cd hover
 
 mkdir -p doc_retrieval
 mkdir -p sent_retrieval
 mkdir -p claim_verification
+mkdir -p bm25_retrieved
 
 mkdir -p tfidf_retrieved
 cd tfidf_retrieved
