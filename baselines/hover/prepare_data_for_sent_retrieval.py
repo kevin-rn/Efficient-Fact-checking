@@ -48,6 +48,14 @@ def main():
         default='hover',
         type=str
     )
+
+    parser.add_argument(
+        "--db_name",
+        default=None,
+        type=str,
+        help="Name of the db file inside data/db_files folder"
+    )
+
     parser.add_argument(
         "--doc_retrieval_output_dir",
         default="exp1.0",
@@ -63,13 +71,11 @@ def main():
         action="store_true"
     )
 
-    parser.add_argument(
-        "--modified",
-        action='store_true'
-    )
-
     args = parser.parse_args()
-    wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
+    if args.db_name:
+        wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
+    else:
+        wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
     args.data_dir = os.path.join(args.data_dir, args.dataset_name)
     hover_data = json.load(open(os.path.join(args.data_dir, 'hover_'+args.data_split+'_release_v1.1.json')))
@@ -109,9 +115,8 @@ def main():
                         para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
                                                         (unicodedata.normalize('NFD', title),)).fetchall()[0]
                         para_title, para_text = list(para)
-                        # Replace [SENT] tokens with spaces
-                        if args.modified:
-                            para_text = str(para_text).replace("[SENT]", "")
+                        # Replace [SENT] tokens
+                        para_text = str(para_text).replace("[SENT]", " ")
                         para_parse = corenlp.annotate(para_text)
                         para_sents = []
                         for sent_parse in para_parse['sentences']:

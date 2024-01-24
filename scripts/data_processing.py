@@ -3,9 +3,9 @@ import bz2
 from itertools import chain
 import json
 import jsonlines
+import h5py
 from typing import List, Any
 from monitor_utils import format_size
-from npy_append_array import NpyAppendArray
 import numpy as np
 import pandas as pd
 import os
@@ -46,13 +46,14 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-### DATA ###
+# # ### DATA ###
 BASE_PATH = os.path.join("..", "baselines", "hover", "data")
 ENWIKI_FOLDER= os.path.join(BASE_PATH, "enwiki_files")
 EMBED_FOLDER = os.path.join(BASE_PATH, "embed_files")
 suffix = "-first" if args.first_para_only else "-full" 
 sent_split = "-sent" if args.split_sent else ""
 FILENAME = args.setting + suffix + sent_split
+FILENAME = "claim-full-sent"
 DB_PATH = os.path.join(BASE_PATH, "db_files", f"wiki_wo_links-{FILENAME}.db")
 
 ### MODEL ###
@@ -154,7 +155,7 @@ def construct_db_file(setting: str, split_sent: bool) -> None:
     text = "text" if "original" in setting else "fact_text"
 
     file_paths = search_file_paths(path_location)
-    for file_path in tqdm(file_paths):
+    for idx, file_path in tqdm(enumerate(file_paths), total=len(file_paths)):
         bz2_path = path_location + file_path
         wiki_values = []
         with bz2.open(bz2_path, "rt") as file:
@@ -163,6 +164,7 @@ def construct_db_file(setting: str, split_sent: bool) -> None:
                 title = wiki_article["title"]
                 doc_title = unicodedata.normalize('NFD', title)
 
+                # Insert full document text or just the first paragraph.
                 wiki_text = wiki_article[text][1:]
                 if args.first_para_only:
                     paragraphs = []
@@ -174,6 +176,7 @@ def construct_db_file(setting: str, split_sent: bool) -> None:
                     paragraphs = list(chain.from_iterable(wiki_text))
                     paragraphs = remove_html_tags(paragraphs)
                 
+                # Store sentences as joint text or separate.
                 if split_sent:
                     for idx, sent in enumerate(paragraphs):
                         sent_title = f"{doc_title}_{idx}"
@@ -181,7 +184,8 @@ def construct_db_file(setting: str, split_sent: bool) -> None:
                 else:
                     doc_text = "[SENT]".join(paragraphs)
                     wiki_values.append((doc_title, doc_text))
-            cursor.executemany("INSERT OR IGNORE INTO documents (id, text) VALUES (?, ?)", wiki_values)
+
+        cursor.executemany("INSERT OR IGNORE INTO documents (id, text) VALUES (?, ?)", wiki_values)
         conn.commit()
 
     # Rebuilds the database file, repacking it into a minimal amount of disk space
@@ -189,36 +193,36 @@ def construct_db_file(setting: str, split_sent: bool) -> None:
     conn.commit()
     conn.close()
 
-def pre_compute_embed(setting: str) -> None:
+def pre_compute_embed() -> None:
     """
     Pre-compute embeddings for all document text in database.
     """
-    def divide_n_chunks(docs: List[Any], n: int):
+    def divide_n_chunks(docs: List[Any], n: int) -> List[List[Any]]:
         "Divides List into n-chunks"
         k, m = divmod(len(docs), n)
-        return (docs[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
+        n_chunks = list((docs[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)))
+        return n_chunks
 
     # Retrieve documents from database file.
     conn = sqlite3.connect(DB_PATH)
     wiki_db = conn.cursor()
     results = wiki_db.execute("SELECT text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
-    doc_text_list = [str(doc[0]).replace("[SENT]", "") for doc in results]
+    doc_text_list = [str(doc[0]).replace("[SENT]", " ") for doc in results]
     conn.close()
 
     # Chunk list if larger than 10 million entries
-    documents = list(divide_n_chunks(doc_text_list, 8)) if len(doc_text_list) > 10**7 else [doc_text_list]
+    documents = divide_n_chunks(doc_text_list, 8) if len(doc_text_list) > 10**7 else [doc_text_list]
 
-    # Encode document text and store them to numpy file.
-    embed_path = os.path.join(EMBED_FOLDER, FILENAME + ".npy")
-    
+    # Encode document text and store them to h5 file.
+    embed_path = os.path.join(EMBED_FOLDER, FILENAME+".h5")
     with torch.no_grad():
-        for doc_text in documents:
-            embed_arr = encoder.encode(doc_text, batch_size=256, show_progress_bar=True, convert_to_numpy=True)
-        with NpyAppendArray(embed_path) as file:
-            file.append(embed_arr)
-    # data = np.load(filename, mmap_mode="r")
+        for idx, doc_text in enumerate(documents):
+            embed_arr = encoder.encode(doc_text, batch_size=128, show_progress_bar=True, convert_to_numpy=True)
+            with h5py.File(embed_path, 'a') as hf:
+                hf.create_dataset(f"group_{idx}",  data=embed_arr)
+            del embed_arr
 
-def get_raw_size(setting: str) -> None:
+def get_raw_size() -> None:
     """
     Get raw corpus size of a setting
     """
@@ -232,51 +236,74 @@ def get_raw_size(setting: str) -> None:
     json_obj = []
     total_sents = 0
     for title, text in tqdm(results, desc="Entry loop"):
-        wiki_store = {"title": title, "text": text.replace("[SENT]", "")}
+        wiki_store = {"title": title, "text": text.replace("[SENT]", " ")}
         json_obj.append(wiki_store)
-        total_sents += len(text.split("[SENT]"))
+        if text.strip():
+            total_sents += len([sent for sent in text.split("[SENT]") if sent.strip()])
 
     # Store to jsonlines file.
-    raw_path = os.path.join(BASE_PATH, "raw_files", FILENAME + "-raw.jsonl")
+    raw_path = os.path.join(BASE_PATH, "raw_files", FILENAME + ".jsonl")
     with jsonlines.open(raw_path, 'a') as writer:
         writer.write_all(json_obj)
 
     # Measure size.
     size = os.path.getsize(raw_path)
-    print(f"{setting} Corpus size: {format_size(size)}, {total_sents} sentences")
+    print(f"Corpus size: {format_size(size)}, {total_sents} sentences")
 
     # Cleanup
     # os.remove(raw_path)
 
-def just_cite():
-    original_path = os.path.join(BASE_PATH, "db_files", "wiki_wo_links-original-full.db")
-    conn = sqlite3.connect(original_path)
-    wiki_db = conn.cursor()
-    results = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
-    conn.close()
-
-    cite_path = os.path.join(BASE_PATH, "db_files", "wiki_wo_links-original-full.db")
+def cite_fusion():
+    cite_path = os.path.join(BASE_PATH, "db_files", "wiki_wo_links-just-cite-full.db")
     conn = sqlite3.connect(cite_path)
     wiki_db = conn.cursor()
-
-    no_changes, changes = 0, 0
-    for title, original_text in results:
-        title = unicodedata.normalize('NFD', title)
-        cite_text = wiki_db.execute("SELECT text FROM documents WHERE id = ?", 
-                                              (title ,)).fetchone()[0]
-        if original_text == cite_text:
-            changes += 1
-        else:
-            no_changes += 1
-
+    docs = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
     conn.close()
 
+    claim_path = os.path.join(BASE_PATH, "db_files", "wiki_wo_links-claim-full.db")
+    conn = sqlite3.connect(claim_path)
+    wiki_db = conn.cursor()
+    titles, cited_texts, claim_texts = [], [], []
+    for title, cite_text in tqdm(docs):
+        claim_text = wiki_db.execute("SELECT text FROM documents WHERE id = ?", 
+                                              (title,)).fetchone()[0]
+        titles.append(title)
+        claim_texts.append(claim_text)
+        cited_texts.append(cite_text)
+    conn.close()
+
+    fusion_path = os.path.join(BASE_PATH, "db_files", "wiki_wo_links-cite-claim-full.db")
+    conn = sqlite3.connect(fusion_path)
+    wiki_db = conn.cursor()
+    wiki_db.execute("""
+                    CREATE TABLE IF NOT EXISTS documents (
+                        id TEXT PRIMARY KEY,
+                        text TEXT
+                    )
+                    """)
+    count = 0
+    wiki_values = []
+    for title, cite_text, claim_text in tqdm(zip(titles, cited_texts, claim_texts), total=len(titles)):
+        # Add claim detected sentence if there are any and if it doesn't contain any citations yet.
+        if not cite_text.strip() and claim_text.strip():
+            wiki_values.append((title, claim_text))
+            count += 1
+        else:
+            wiki_values.append((title, cite_text))
+    wiki_db.executemany("INSERT OR IGNORE INTO documents (id, text) VALUES (?, ?)", wiki_values)
+    conn.commit()
+
+    wiki_db.execute("VACUUM;")
+    conn.commit()
+    conn.close()
+    print(f"Total length: {len(titles)}, count original: {count}")
+
 def main():
-    run_setting=args.setting
-    # construct_db_file(setting=run_setting, split_sent=args.split_sent)
+    construct_db_file(setting=args.setting, split_sent=args.split_sent)
     if args.pre_compute_embed:
-        pre_compute_embed(setting=run_setting)
-    # get_raw_size(setting=run_setting)
+        pre_compute_embed()
+    # cite_fusion()
+    get_raw_size()
 
 if __name__ == "__main__":
     main()

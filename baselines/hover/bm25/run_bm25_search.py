@@ -75,7 +75,7 @@ def search_and_retrieve(data_split: str, init_index: bool, batched: bool) -> Non
    queries, claim_list = get_queries(query_path)
 
    # Perform Indexing and retrieval
-   batch_size = 128 if batched else 1
+   batch_size = 32 if batched else 1
    bm25_search = BM25Search(index_name="hover", 
                             initialize=init_index, 
                             batch_size=batch_size, 
@@ -118,7 +118,7 @@ def search_and_retrieve(data_split: str, init_index: bool, batched: bool) -> Non
 
 def main():
    try:
-      # search_and_retrieve("train", init_index=True, batched=False)
+      search_and_retrieve("train", init_index=True, batched=True)
       search_and_retrieve("dev", init_index=False, batched=False)
    except Exception as e:
       print(e)

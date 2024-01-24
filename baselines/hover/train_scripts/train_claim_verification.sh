@@ -10,6 +10,7 @@ python3 run_hover.py \
 --learning_rate 3e-5 \
 --num_train_epochs 5.0 \
 --evaluate_during_training \
+--overwrite_output_dir \
 --output_dir exp1.0 \
 --max_seq_length 200  \
 --max_query_length 60 \

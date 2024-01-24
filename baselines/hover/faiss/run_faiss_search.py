@@ -3,15 +3,17 @@ from itertools import chain
 import json
 import numpy as np
 import os
+import h5py
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import sqlite3
 import torch
-from typing import List, Tuple
+from typing import List, Dict
 from faiss_search import FaissSearch
 import sys
-sys.path.append(sys.path[0] + '/../..')
+sys.path.insert(0, sys.path[0] + '/../..')
 from scripts.monitor_utils import ProcessMonitor
+
 
 ### Argument parsing
 ### e.g. python faiss/run_faiss_search.py --rerank_mode=none --n_neighbours=5 --n_rerank=5
@@ -22,6 +24,13 @@ parser.add_argument(
     type=str,
     default=None,
     help="Name of the setting to run"
+)
+
+parser.add_argument(
+    "--hover_stage",
+    default="claim_verification",
+    type=str,
+    help="[claim_verification | sent_retrieval]"
 )
 
 parser.add_argument(
@@ -43,12 +52,33 @@ parser.add_argument(
     type=int,
     help="Top-k sentences to retrieve for reranking"
 )
+parser.add_argument(
+    "--use_gpu",
+    action='store_true',
+    help="Use Faiss-gpu instead of cpu"
+)
+
+parser.add_argument(
+    "--precompute_embed",
+    action='store_true',
+    help="Use precomputed embeds instead of calculating on the fly"
+)
+
+parser.add_argument(
+    "--compress_embed",
+    action='store_true',
+    help="Use Unsupervised Neural Quantitazation to compress embedding size"
+)
 args = parser.parse_args()
 
 if args.setting:
     ENWIKI_DB = os.path.join("data", "db_files", f"wiki_wo_links-{args.setting}.db")  
 else:
     ENWIKI_DB = os.path.join("data", "wiki_wo_links.db")
+
+UNQ_CHECKPOINT = os.path.join("..", "unq", "notebooks", "logs", 
+                              "enwiki_claim_unq_16b_original-full", "checkpoint_best.pth")
+EMBED_FILE = os.path.join("data", "embed_files", f"{args.setting}.h5")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 encoder = SentenceTransformer(
@@ -68,26 +98,37 @@ def setup_faiss_search() -> FaissSearch:
     wiki_db = conn.cursor()
     results = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
     title_list = np.array([doc[0] for doc in results])
-    doc_list = [str(doc[1]).replace("[SENT]", "") for doc in results]
+    doc_list = [str(doc[1]).replace("[SENT]", " ") for doc in results]
 
     conn.close()
 
     # Create or load FAISS index.
     print("-- Creating FAISS index --")
+    emb_dim, n_codebooks = encoder.get_sentence_embedding_dimension(), 16
     faiss_search = FaissSearch(data=title_list, 
-                            emb_dim=encoder.get_sentence_embedding_dimension(),
+                            emb_dim=n_codebooks if args.compress_embed else emb_dim,
                             idx_dir=os.path.join("faiss", "indices"),
                             encoder=encoder,
-                            setting=args.setting.replace("-embed", ""),
-                            use_gpu=False)
+                            setting=args.setting,
+                            use_gpu=args.use_gpu,
+                            use_compress=args.compress_embed)
+    if args.compress_embed:
+        faiss_search.setup_compression_model(checkpoint_path=UNQ_CHECKPOINT, vect_dim=emb_dim, n_codebooks=n_codebooks)
 
     if not faiss_search.load_index_if_available():
+
         pm = ProcessMonitor()
         pm.start()
         with torch.no_grad():
-            emb_list = encoder.encode(doc_list, batch_size=128, show_progress_bar=True)
-        faiss_search.create_index(emb_list)
-        faiss_search.print_size_info()
+            if args.precompute_embed and os.path.exists(EMBED_FILE):
+                    emb_list = []
+                    with h5py.File(EMBED_FILE, 'r') as hf:
+                        for group_name in hf.keys():
+                            np.append(emb_list, hf[group_name][:])
+            else:
+                emb_list = encoder.encode(doc_list, batch_size=128, show_progress_bar=True)
+            faiss_search.create_index(emb_list)
+            faiss_search.print_size_info()
         pm.stop()
     return faiss_search
 
@@ -139,6 +180,69 @@ def rerank_nn(claim_emb, doc_list: List[str], top_k: int, rerank_mode:str) -> st
                 evidence_text = [sent for sent in doc_sents if sent in top_k_sents]
     return " ".join(evidence_text)
 
+def format_for_claim_verification(top_nn_results: Dict, claims: Dict, datasplit: str) -> None:
+    """
+    Formats retrieved neighbours into data format for Claim Verification stage of the HoVer pipeline.
+
+    Args:
+        - top_nn_results (Dict): Top-nn retrieved results containing document information.
+        - claims (Dict): Dict object containing information for the claims.
+        - datasplit (str): Name of the claim datasplit to process for.
+    """
+    results = []
+    docs = top_nn_results['docs']
+    claims_emb = top_nn_results['claim_embeds']
+    for idx in range(len(docs)):
+        claim_obj = claims[idx]
+        evidence_text = rerank_nn(claim_emb=claims_emb[idx], 
+                                doc_list=docs[idx], 
+                                top_k=args.n_rerank, 
+                                rerank_mode=args.rerank_mode)
+
+        json_result = {'id': claim_obj['uid'], 
+                       'claim': claim_obj['claim'], 
+                       'context': evidence_text, 
+                       'label': claim_obj['label']}
+        results.append(json_result)
+    assert len(results) == len(docs)
+
+    retrieve_file = os.path.join("data", "hover", "claim_verification", 
+                            f"hover_{datasplit}_claim_verification.json")
+    with open(retrieve_file, 'w', encoding="utf-8") as f:
+        json.dump(results, f)
+
+def format_for_sent_retrieval(top_nn_results: Dict, claims: Dict, datasplit: str) -> None:
+    """
+    Formats retrieved neighbours into data format for Sent Retrieval stage of the HoVer pipeline.
+
+    Args:
+        - top_nn_results (Dict): Top-nn retrieved results containing document information.
+        - claims (Dict): Dict object containing information for the claims.
+        - datasplit (str): Name of the claim datasplit to process for.
+    """
+    results = []
+    doc_titles = top_nn_results['doc_titles']
+    docs = top_nn_results['docs']
+    for idx in range(len(docs)):
+        context_data = []
+        claim_obj = claims[idx]
+        for doc_title, doc_text in zip(doc_titles[idx], docs[idx]):
+            evidence_sents =  [sent for sent in doc_text.split('[SENT]') if sent.strip()]
+            context_data.append([doc_title, evidence_sents])
+
+        json_result = {'id': claim_obj['uid'], 
+                       'claim': claim_obj['claim'], 
+                       'context': context_data, 
+                       'supporting_facts': claim_obj['supporting_facts']}
+        results.append(json_result)
+
+
+    retrieve_file = os.path.join("data", "hover", "sent_retrieval", 
+                        f"hover_{datasplit}_sent_retrieval.json")
+    with open(retrieve_file, 'w', encoding="utf-8") as f:
+        json.dump(results, f)
+
+
 def claim_retrieval(faiss_search: FaissSearch, datasplit: str, batched: bool) -> None:
     """
     Retrieves for all the claims of a HoVer datasplit all top-k nearest neighbour texts 
@@ -165,32 +269,19 @@ def claim_retrieval(faiss_search: FaissSearch, datasplit: str, batched: bool) ->
     pm.stop()
 
     # Format output file
-    results = []
-    docs = topk_nn['docs']
-    claims_emb = topk_nn['embeds']
-    for idx in range(len(docs)):
-        claim_obj = claim_json[idx]
-        evidence_text = rerank_nn(claim_emb=claims_emb[idx], 
-                                  doc_list=docs[idx], 
-                                  top_k=args.n_rerank, 
-                                  rerank_mode=args.rerank_mode)
-
-        json_result = {'id': claim_obj['uid'], 'claim': claim_obj['claim'], 
-                       'context': evidence_text, 'label': claim_obj['label']}
-        results.append(json_result)
-
-    assert len(results) == len(docs)
-
-    # Save to file
-    retrieve_file = os.path.join("data", "hover", "claim_verification", 
-                            f"hover_{datasplit}_claim_verification.json")
-    with open(retrieve_file, 'w', encoding="utf-8") as f:
-        json.dump(results, f)
+    if args.hover_stage == "claim_verification":
+        format_for_claim_verification(top_nn_results=topk_nn, 
+                                      claims=claim_json, 
+                                      datasplit=datasplit)
+    else:
+        format_for_sent_retrieval(top_nn_results=topk_nn, 
+                                  claims=claim_json, 
+                                  datasplit=datasplit)
 
 def main():
     faiss = setup_faiss_search()
-    claim_retrieval(faiss_search=faiss, datasplit="train", batched=True)
-    claim_retrieval(faiss_search=faiss, datasplit="dev", batched=True)
+    # claim_retrieval(faiss_search=faiss, datasplit="train", batched=True)
+    claim_retrieval(faiss_search=faiss, datasplit="dev", batched=False)
     # faiss.remove_index()
 
 if __name__ == "__main__":

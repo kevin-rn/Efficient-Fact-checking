@@ -2,7 +2,6 @@ import tqdm
 import time
 from typing import List, Dict
 from ELasticSearch import ElasticSearch
-import os
 import sys 
 
 sys.path.append(sys.path[0] + '/../../..')

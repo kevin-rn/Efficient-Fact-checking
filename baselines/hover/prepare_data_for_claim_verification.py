@@ -53,7 +53,7 @@ def main():
     )
 
     args = parser.parse_args()
-    wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
+    # wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
     args.data_dir = os.path.join(args.data_dir, args.dataset_name)
     hover_data = json.load(open(os.path.join(args.data_dir, 'hover_'+args.data_split+'_release_v1.1.json')))

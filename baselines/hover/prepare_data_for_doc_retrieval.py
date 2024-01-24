@@ -40,6 +40,14 @@ def main():
         default='hover',
         type=str
     )
+
+    parser.add_argument(
+        "--db_name",
+        default=None,
+        type=str,
+        help="Name of the db file inside data/db_files folder"
+    )
+
     parser.add_argument(
         "--oracle",
         action="store_true"
@@ -51,7 +59,11 @@ def main():
     )
 
     args = parser.parse_args()
-    wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
+
+    if args.db_name:
+        wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
+    else:
+        wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
     args.data_dir = os.path.join(args.data_dir, args.dataset_name)
 
@@ -108,7 +120,9 @@ def main():
                         continue
                     para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
                                                     (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
-                    context.append(list(para.replace("[SENT]", "")))
+                    paragraph = list(para)
+                    paragraph[1] = paragraph[1].replace("[SENT]", " ")
+                    context.append(paragraph)
                     if doc_title in golden_docs:
                         labels.append(1)
                     else:

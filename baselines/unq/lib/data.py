@@ -1,12 +1,22 @@
 import os
 import warnings
 
+import json
 import numpy as np
 import torch
 import random
 from .utils import fvecs_read, download
 import os.path as osp
+import sqlite3
+from sentence_transformers import SentenceTransformer
+from tqdm import tqdm
+import unicodedata
 
+DATA_PATH = os.path.join("..", "..", "hover", "data")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+encoder = SentenceTransformer(
+    "sentence-transformers/all-MiniLM-L6-v2", device=device
+)
 
 class Dataset:
 
@@ -83,8 +93,89 @@ def fetch_BIGANN1M(path, train_size=None, test_size=None):
         query_vectors=fvecs_read(query_path)
     )
 
+def fetch_ENWIKI(path, train_size=5 * 10 ** 5, test_size=10 ** 6, setting="original-full"):
+    data_train_path = os.path.join("data", "ENWIKI", f"{setting}_train_dataset.pt")
+    data_test_path = os.path.join("data", "ENWIKI", f"{setting}_test_dataset.pt")
+    query_path = os.path.join("data", "ENWIKI", f"{setting}_query_dataset.pt")
+
+    if os.path.exists(query_path) and os.path.exists(data_train_path) and os.path.exists(data_test_path):
+        print("load tensor")
+        query_dataset = torch.load(query_path).to(torch.float)
+        train_dataset = torch.load(data_train_path).to(torch.float)
+        test_dataset = torch.load(data_test_path).to(torch.float)
+    else:
+        print("create tensor")   
+        train_titles, dev_titles, claims = [], [], []
+        hover_train_path = os.path.join(DATA_PATH, "hover", "hover_train_release_v1.1.json")
+        hover_dev_path = os.path.join(DATA_PATH, "hover", "hover_dev_release_v1.1.json")
+            
+        with open(hover_train_path, 'r') as json_file:
+            claim_json = json.load(json_file)
+            claims = [claim for claim in claim_json]
+            train_titles = list(set([unicodedata.normalize('NFD', supporting[0]) for doc in claim_json for supporting in doc['supporting_facts']]))
+            with torch.no_grad():
+                query_dataset = encoder.encode(claims, batch_size=128, 
+                                            convert_to_tensor=True, 
+                                            show_progress_bar=True).to(torch.float)
+
+        with open(hover_dev_path, 'r') as json_file:
+            claim_json = json.load(json_file)
+            dev_titles = list(set([supporting[0] for doc in claim_json for supporting in doc['supporting_facts']]))
+        db_path = os.path.join(DATA_PATH, "db_files", f"wiki_wo_links-{setting}.db")
+        conn = sqlite3.connect(db_path)
+        wiki_db = conn.cursor()
+
+        pre_compute_path = os.path.join(DATA_PATH, "embed_files", setting+".npy")
+        if os.path.exists(pre_compute_path):
+            print("Load pre-computed embeddings")
+            embed_list = np.load(pre_compute_path)
+            title_list = wiki_db.execute("SELECT id FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
+        else:
+            results = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
+            title_list = [title[0] for title in results]
+            text_list = [text[1] for text in results]
+            with torch.no_grad():
+                embed_list = encoder.encode(text_list, batch_size=128, show_progress_bar=True)
+        conn.close()
+
+        index_list, support_embeds = [], []
+        for doc_titles in [train_titles, dev_titles]:
+            indices = []
+            for doc_title in tqdm(doc_titles):
+                try:
+                    id = title_list.index(doc_title)
+                    indices.append(id)
+                except ValueError:
+                    pass
+        
+            # Generate arrays containing and without the supporting facts
+            support_embeds.append(embed_list[indices])
+            index_list.extend(indices)
+
+        # Fill the dataset with other non-supporting documents to increase size.
+        non_support_embeds = np.delete(embed_list, list(set(index_list)), axis=0)
+        non_support_indices = np.arange(len(non_support_embeds))
+        train_fill = np.random.choice(non_support_indices, size=5*10**5 - len(support_embeds[0]))
+        non_support_indices = np.delete(non_support_indices, train_fill)
+        dev_vals = np.random.choice(non_support_indices, size=10**6 - len(support_embeds[1]))
+        train_dataset = torch.from_numpy(np.concatenate([support_embeds[0], non_support_embeds[train_fill]])).to(torch.float)
+        dev_dataset = torch.from_numpy(np.concatenate([support_embeds[1], non_support_embeds[dev_vals]])).to(torch.float)
+        train_dataset=train_dataset[torch.randperm(train_dataset.size()[0])]
+        test_dataset=test_dataset[torch.randperm(test_dataset.size()[0])]
+
+        # Save to disk
+        torch.save(query_dataset, query_path)
+        torch.save(train_dataset, data_train_path)
+        torch.save(test_dataset, data_test_path)
+
+    return dict(
+        train_vectors=train_dataset,
+        test_vectors=test_dataset,
+        query_vectors=query_dataset
+    )
 
 DATASETS = {
     'DEEP1M': fetch_DEEP1M,
     'BIGANN1M': fetch_BIGANN1M,
+    'ENWIKI': fetch_ENWIKI,
 }
