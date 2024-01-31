@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import random
 from .model import UNQModel
 from .utils import check_numpy, get_latest_file
 from .knn import FAISSFlatIndex
@@ -94,6 +95,31 @@ class Trainer(nn.Module):
             recall = np.equal(predicted_indices, reference_indices).any(-1).mean()
         self.writer.add_scalar('{}recall@{}'.format(prefix, k), recall, self.step)
         return recall
+    
+    # ref = [[1, 2, 5], [7, 6, 8, 4]]
+    # pred = [[1, ..., 10], [5]]
+    # [[True, True, False], [False, True, False]]
+    # [True, True, False]
+    # 1 + 1 + 0 / 3 = 2/3
+    
+    def calculate_recall(self, list_a, list_b, k):
+        """
+        Calculates recall@k
+        """
+        common_elements = set(list_a) & set(list_b)
+        # recall = len(common_elements) / len(list_b)
+        recall = len(common_elements) / min(k, len(list_b))
+        return recall
+
+    def evaluate_recall_enwiki(self, base, query, reference_indices, k=1, prefix='dev/', **kwargs):
+        """ Computes average recall @ k """
+        with torch.no_grad(), training_mode(self.model, is_train=False):
+            predicted_indices = self.LearnedSimilaritySearch(base, **kwargs).search(query, k=k)
+            predicted_indices, reference_indices = map(check_numpy, (predicted_indices, reference_indices))
+            recalls = [self.calculate_recall(pred, ref[ref != -1], k) for pred, ref in zip(predicted_indices, reference_indices)]
+            average_recall = sum(recalls) / len(recalls) if len(recalls) > 0 else 0
+        self.writer.add_scalar('{}recall@{}'.format(prefix, k), average_recall, self.step)
+        return average_recall
 
     def save_checkpoint(self, tag=None, path=None, mkdir=True, **kwargs):
         assert tag is None or path is None, "please provide either tag or path or nothing, not both"
@@ -150,8 +176,9 @@ class Trainer(nn.Module):
         """
         if self.verbose:
             print(end="Computing negative candidates... ", flush=True)
-        assert base.shape[0] == positive_ids.shape[0]
+        # assert base.shape[0] == positive_ids.shape[0]
         num_vectors, k_positives = positive_ids.shape
+        k_positives = len(positive_ids)
         k_total = k + skip_k + k_positives + 1
 
         with torch.no_grad():
@@ -187,6 +214,19 @@ class Trainer(nn.Module):
 
         if self.verbose:
             print(end="Done\n", flush=True)
+        return negative_ids
+
+    def get_negative_ids_enwiki(self, base, positive_ids, *, k, skip_k=0):
+        """
+        returns indices of top-k nearest neighbors in learned space excluding positive_ids
+        :param base: float matrix [num_vectors, vector_dim]
+        :param positive_ids: int matrix [num_vectors, num_positive_neighbors]
+        :param k: number of negative samples for each vector
+        :param skip_k: excludes this many nearest indices from nearest ids (used for recall@10/100)
+        """
+        indices = set(range(base.shape[0]))
+        negative_ids = [random.sample(list(indices-set(p_id.tolist())), k) for p_id in positive_ids]
+        negative_ids = torch.IntTensor(negative_ids)
         return negative_ids
 
 

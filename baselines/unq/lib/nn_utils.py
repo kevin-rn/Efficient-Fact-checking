@@ -36,7 +36,6 @@ class OneCycleSchedule:
         self.learning_rate_opts = state_dict['learning_rate_opts'] if load_opts else self.learning_rate_opts
         self.step_count = state_dict['step_count'] if load_step else self.step_count
 
-        # Set each state to have the step count.
         n_states = len(state_dict['optimizer_state_dict']['state'])
         for i in range(n_states):
             state_dict['optimizer_state_dict']['state'][i]['step'] = self.step_count

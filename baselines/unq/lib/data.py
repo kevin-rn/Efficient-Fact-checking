@@ -1,16 +1,20 @@
 import os
+import os.path as osp
 import warnings
-
+import sqlite3
+from tqdm import tqdm
 import json
+import h5py
 import numpy as np
 import torch
 import random
-from .utils import fvecs_read, download
-import os.path as osp
-import sqlite3
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
 import unicodedata
+
+import contextlib
+import joblib
+from joblib import Parallel, delayed
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 DATA_PATH = os.path.join("..", "..", "hover", "data")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -42,20 +46,42 @@ class Dataset:
             assert all(key in kwargs for key in ('train_vectors', 'test_vectors', 'query_vectors'))
             data_dict = kwargs
 
-        self.train_vectors = torch.as_tensor(data_dict['train_vectors'])
-        self.test_vectors = torch.as_tensor(data_dict['test_vectors'])
-        self.query_vectors = torch.as_tensor(data_dict['query_vectors'])
-        assert self.train_vectors.shape[1] == self.test_vectors.shape[1] == self.query_vectors.shape[1]
-        self.vector_dim = self.train_vectors.shape[1]
+        if "ENWIKI" == dataset:
+            self.train_query_vectors = torch.as_tensor(data_dict['train_query_vectors'])
+            self.train_data_vectors = torch.as_tensor(data_dict['train_data_vectors'])
+            self.train_nn_indices = torch.as_tensor(data_dict['train_nn_indices'])
+            self.test_query_vectors = torch.as_tensor(data_dict['test_query_vectors'])
+            self.test_data_vectors = torch.as_tensor(data_dict['test_data_vectors'])
+            self.test_nn_indices = torch.as_tensor(data_dict['train_nn_indices']) 
 
-        mean_norm = self.train_vectors.norm(p=2, dim=-1).mean().item()
-        if normalize:
-            self.train_vectors /= mean_norm
-            self.test_vectors /= mean_norm
-            self.query_vectors /= mean_norm
+            self.vector_dim = self.train_query_vectors.shape[1]
+
+            mean_norm = self.train_data_vectors.norm(p=2, dim=-1).mean().item()
+            if normalize:
+                self.train_query_vectors /= mean_norm
+                self.train_data_vectors /= mean_norm
+                self.test_query_vectors /= mean_norm
+                self.test_data_vectors /= mean_norm
+            else:
+                if mean_norm < 0.1 or mean_norm > 10.0:
+                    warnings.warn("Mean train_vectors norm is {}, consider normalizing")
+
         else:
-            if mean_norm < 0.1 or mean_norm > 10.0:
-                warnings.warn("Mean train_vectors norm is {}, consider normalizing")
+            self.train_vectors = torch.as_tensor(data_dict['train_vectors'])
+            self.test_vectors = torch.as_tensor(data_dict['test_vectors'])
+            self.query_vectors = torch.as_tensor(data_dict['query_vectors'])
+        
+            assert self.train_vectors.shape[1] == self.test_vectors.shape[1] == self.query_vectors.shape[1]
+            self.vector_dim = self.train_vectors.shape[1]
+
+            mean_norm = self.train_vectors.norm(p=2, dim=-1).mean().item()
+            if normalize:
+                self.train_vectors /= mean_norm
+                self.test_vectors /= mean_norm
+                self.query_vectors /= mean_norm
+            else:
+                if mean_norm < 0.1 or mean_norm > 10.0:
+                    warnings.warn("Mean train_vectors norm is {}, consider normalizing")
 
 
 def fetch_DEEP1M(path, train_size=5 * 10 ** 5, test_size=10 ** 6, ):
@@ -93,89 +119,150 @@ def fetch_BIGANN1M(path, train_size=None, test_size=None):
         query_vectors=fvecs_read(query_path)
     )
 
-def fetch_ENWIKI(path, train_size=5 * 10 ** 5, test_size=10 ** 6, setting="original-full"):
-    data_train_path = os.path.join("data", "ENWIKI", f"{setting}_train_dataset.pt")
-    data_test_path = os.path.join("data", "ENWIKI", f"{setting}_test_dataset.pt")
-    query_path = os.path.join("data", "ENWIKI", f"{setting}_query_dataset.pt")
+def get_claim_splits():
+    """
+    Get claim and supporting titles and splits them in a 7-3 split
+    """
+    train_titles, claims = [], []
+    hover_train_path = os.path.join(DATA_PATH, "hover", "hover_train_release_v1.1.json")
+    with open(hover_train_path, 'r') as json_file:
+        claim_json = json.load(json_file)
+        claims = [claim for claim in claim_json]
+        train_titles = [list(set([unicodedata.normalize('NFD', supporting[0]) for supporting in doc['supporting_facts']])) for doc in claim_json ]
+        with torch.no_grad():
+            query_dataset = encoder.encode(claims, batch_size=128, convert_to_numpy=True, show_progress_bar=True)
 
-    if os.path.exists(query_path) and os.path.exists(data_train_path) and os.path.exists(data_test_path):
-        print("load tensor")
-        query_dataset = torch.load(query_path).to(torch.float)
-        train_dataset = torch.load(data_train_path).to(torch.float)
-        test_dataset = torch.load(data_test_path).to(torch.float)
+    values = list(zip(train_titles, query_dataset))
+    split_size = (len(values) // 10) * 7
+    train_values = values[:split_size]
+    test_values = values[split_size:]
+    return train_values, test_values
+
+def retrieve_doc_embeds(setting):
+    """ 
+    Get all titles and document embeddings
+    """
+    db_path = os.path.join(DATA_PATH, "db_files", f"wiki_wo_links-{setting}.db")
+    pre_compute_path = os.path.join(DATA_PATH, "embed_files", setting+".h5")
+    conn = sqlite3.connect(db_path)
+    wiki_db = conn.cursor()
+    if os.path.exists(pre_compute_path):
+        embed_list = []
+        with h5py.File(pre_compute_path, 'r') as hf:
+            for group_name in hf.keys():
+                embed_list = hf[group_name][:]
+        title_list = wiki_db.execute("SELECT id FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
+        title_list = [title[0] for title in title_list]
     else:
-        print("create tensor")   
-        train_titles, dev_titles, claims = [], [], []
-        hover_train_path = os.path.join(DATA_PATH, "hover", "hover_train_release_v1.1.json")
-        hover_dev_path = os.path.join(DATA_PATH, "hover", "hover_dev_release_v1.1.json")
-            
-        with open(hover_train_path, 'r') as json_file:
-            claim_json = json.load(json_file)
-            claims = [claim for claim in claim_json]
-            train_titles = list(set([unicodedata.normalize('NFD', supporting[0]) for doc in claim_json for supporting in doc['supporting_facts']]))
-            with torch.no_grad():
-                query_dataset = encoder.encode(claims, batch_size=128, 
-                                            convert_to_tensor=True, 
-                                            show_progress_bar=True).to(torch.float)
+        title_list, text_list = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
+        with torch.no_grad():
+            embed_list = encoder.encode(text_list, batch_size=128, show_progress_bar=True)
+    conn.close()
+    return title_list, embed_list
 
-        with open(hover_dev_path, 'r') as json_file:
-            claim_json = json.load(json_file)
-            dev_titles = list(set([supporting[0] for doc in claim_json for supporting in doc['supporting_facts']]))
-        db_path = os.path.join(DATA_PATH, "db_files", f"wiki_wo_links-{setting}.db")
-        conn = sqlite3.connect(db_path)
-        wiki_db = conn.cursor()
+def form_datasets(train_values, test_values, title_list, embed_list, train_size, test_size):
+    """
+    Forms the train and test datasets concisting of supporting and non-supporting documents.
+    """
+    # Get all supporting documents for train and test
+    lookup_dict = dict(zip(title_list, range(0,len(title_list))))
+    support_indices, train_support, train_query, train_dataset = [], [], [], []
+    for support_titles, claim_embed in tqdm(train_values, desc="train_values"):
+        train_query.append(claim_embed)
+        indices = [lookup_dict[title] for title in support_titles]
+        support_indices.extend(indices)
+        embed_vals = embed_list[indices]
+        train_support.append(embed_vals)
+        train_dataset.extend(embed_vals)
 
-        pre_compute_path = os.path.join(DATA_PATH, "embed_files", setting+".npy")
-        if os.path.exists(pre_compute_path):
-            print("Load pre-computed embeddings")
-            embed_list = np.load(pre_compute_path)
-            title_list = wiki_db.execute("SELECT id FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
-        else:
-            results = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
-            title_list = [title[0] for title in results]
-            text_list = [text[1] for text in results]
-            with torch.no_grad():
-                embed_list = encoder.encode(text_list, batch_size=128, show_progress_bar=True)
-        conn.close()
+    test_support, test_query, test_dataset = [], [], []
+    for support_titles, claim_embed in tqdm(test_values, desc="test_values"):
+        test_query.append(claim_embed)
+        indices = [lookup_dict[title] for title in support_titles]
+        support_indices.extend(indices)
+        embed_vals = embed_list[indices]
+        test_support.append(embed_vals)
+        test_dataset.extend(embed_vals)
 
-        index_list, support_embeds = [], []
-        for doc_titles in [train_titles, dev_titles]:
-            indices = []
-            for doc_title in tqdm(doc_titles):
-                try:
-                    id = title_list.index(doc_title)
-                    indices.append(id)
-                except ValueError:
-                    pass
+    train_dataset = np.unique(train_dataset, axis=0)
+    test_dataset = np.unique(test_dataset, axis=0)
+    support_indices = np.unique(support_indices)
+
+    # Fill the dataset with non-supporting documents.  
+    indices, non_support_embeds =  zip(*enumerate(np.delete(embed_list, support_indices, axis=0)))
+    fill_indices = np.random.choice(indices, size=train_size - len(train_dataset))
+    non_support_embeds = np.array(non_support_embeds)
+    train_dataset = np.concatenate([train_dataset, non_support_embeds[fill_indices]])
+    indices, non_support_embeds = zip(*enumerate(np.delete(non_support_embeds, fill_indices, axis=0)))
+    fill_indices = np.random.choice(indices, size=test_size - len(test_dataset))
+    non_support_embeds = np.array(non_support_embeds)
+    test_dataset = np.concatenate([test_dataset, non_support_embeds[fill_indices]])
+    np.random.shuffle(train_dataset)
+    np.random.shuffle(test_dataset)
+
+    # Get support indices from new dataset splits and return final dataset values.
+    with tqdm_joblib(tqdm(desc="Retrieval train support", total=len(train_support))) as progress_bar:
+        train_nn_indices = Parallel(n_jobs=16)(delayed(find_indices)(support_embeds, train_dataset) for support_embeds in train_support)
+
+    with tqdm_joblib(tqdm(desc="Retrieval test support", total=len(test_support))) as progress_bar:
+        test_nn_indices = Parallel(n_jobs=16)(delayed(find_indices)(support_embeds, test_dataset) for support_embeds in test_support)
+
+    # Pad with -1 as the amount of supporting documents are between 2-4
+    train_nn_indices = np.array([sublist.tolist() + [-1] * (4 - len(sublist)) for sublist in train_nn_indices], dtype=int)
+    test_nn_indices = np.array([sublist.tolist() + [-1] * (4 - len(sublist)) for sublist in test_nn_indices], dtype=int)
+
+    values = [train_query, train_dataset, train_nn_indices,
+               test_query, test_dataset, test_nn_indices]
+    return values
+
+def fetch_ENWIKI(path, train_size=5 * 10 ** 5, test_size=10 ** 6, setting="original-full"):
+    keys = ['train_query_vectors', 'train_data_vectors', 'train_nn_indices', 
+        'test_query_vectors', 'test_data_vectors', 'test_nn_indices']
+    file_path = os.path.join(path, setting+".h5")
+    if os.path.isfile(file_path):
+        values = []
+        with h5py.File(file_path, 'r') as hf:
+            for group_name in keys:
+                vectors = hf[group_name][:]
+                values.append(vectors)
+    else:
+        train_values, test_values = get_claim_splits()
+        title_list, embed_list = retrieve_doc_embeds(setting=setting)
+        values = form_datasets(train_values=train_values, test_values=test_values,
+                               title_list=title_list, embed_list=embed_list,
+                               train_size=train_size, test_size=test_size)
         
-            # Generate arrays containing and without the supporting facts
-            support_embeds.append(embed_list[indices])
-            index_list.extend(indices)
+        for key, value in zip(keys, values):
+            with h5py.File(file_path, 'a') as hf:
+                hf.create_dataset(key,  data=value)
 
-        # Fill the dataset with other non-supporting documents to increase size.
-        non_support_embeds = np.delete(embed_list, list(set(index_list)), axis=0)
-        non_support_indices = np.arange(len(non_support_embeds))
-        train_fill = np.random.choice(non_support_indices, size=5*10**5 - len(support_embeds[0]))
-        non_support_indices = np.delete(non_support_indices, train_fill)
-        dev_vals = np.random.choice(non_support_indices, size=10**6 - len(support_embeds[1]))
-        train_dataset = torch.from_numpy(np.concatenate([support_embeds[0], non_support_embeds[train_fill]])).to(torch.float)
-        dev_dataset = torch.from_numpy(np.concatenate([support_embeds[1], non_support_embeds[dev_vals]])).to(torch.float)
-        train_dataset=train_dataset[torch.randperm(train_dataset.size()[0])]
-        test_dataset=test_dataset[torch.randperm(test_dataset.size()[0])]
-
-        # Save to disk
-        torch.save(query_dataset, query_path)
-        torch.save(train_dataset, data_train_path)
-        torch.save(test_dataset, data_test_path)
-
-    return dict(
-        train_vectors=train_dataset,
-        test_vectors=test_dataset,
-        query_vectors=query_dataset
-    )
+    return dict(zip(keys, values))
 
 DATASETS = {
     'DEEP1M': fetch_DEEP1M,
     'BIGANN1M': fetch_BIGANN1M,
     'ENWIKI': fetch_ENWIKI,
 }
+
+@contextlib.contextmanager
+def tqdm_joblib(tqdm_object):
+    """
+    Context manager to patch joblib to report into tqdm progress bar given as argument
+    see https://stackoverflow.com/questions/24983493/tracking-progress-of-joblib-parallel-execution
+    """
+    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    old_batch_callback = joblib.parallel.BatchCompletionCallBack
+    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+    try:
+        yield tqdm_object
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_batch_callback
+        tqdm_object.close()
+
+def find_indices(values, dataset):
+        indices = [np.where(np.all(np.equal(dataset, value), axis=1))[0][0] for value in values]
+        return np.array(indices)
