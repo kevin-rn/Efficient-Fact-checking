@@ -13,14 +13,12 @@ from tqdm import tqdm
 
 import sys
 sys.path.append(sys.path[0] + '/../..')
-from scripts.monitor_utils import monitor
-
+from scripts.monitor_utils import ProcessMonitor
 
 def connect_to_db(db_path):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
     return c
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -72,80 +70,82 @@ def main():
     )
 
     args = parser.parse_args()
-    if args.db_name:
-        wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
-    else:
-        wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
+    with ProcessMonitor(dataset=args.dataset_name) as pm:
+        pm.start()
 
-    args.data_dir = os.path.join(args.data_dir, args.dataset_name)
-    hover_data = json.load(open(os.path.join(args.data_dir, 'hover_'+args.data_split+'_release_v1.1.json')))
+        if args.db_name:
+            wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
+        else:
+            wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
-    args.doc_retrieval_output_dir = os.path.join('out', args.dataset_name, args.doc_retrieval_output_dir, 'doc_retrieval', \
-        'checkpoint-'+str(args.doc_retrieval_model_global_step))
-    doc_retrieval_predictions = json.load(open(os.path.join(args.doc_retrieval_output_dir, args.data_split+'_predictions_.json')))
+        args.data_dir = os.path.join(args.data_dir, args.dataset_name)
+        hover_data = json.load(open(os.path.join(args.data_dir, args.dataset_name+'_'+args.data_split+'_release_v1.1.json')))
 
-    uid_to_supporting_fact = {}
-    for e in hover_data:
-        uid, claim, supporting_facts = e['uid'], e['claim'], e['supporting_facts']
-        assert uid not in uid_to_supporting_fact
-        uid_to_supporting_fact[uid] = [claim, supporting_facts]
+        args.doc_retrieval_output_dir = os.path.join('out', args.dataset_name, args.doc_retrieval_output_dir, 'doc_retrieval', \
+            'checkpoint-'+str(args.doc_retrieval_model_global_step))
+        doc_retrieval_predictions = json.load(open(os.path.join(args.doc_retrieval_output_dir, args.data_split+'_predictions_.json')))
 
-    data_for_sent_ret = []
-    try:
-        for uid in tqdm(doc_retrieval_predictions.keys()):
-            pred_obj = doc_retrieval_predictions[uid]
-            sorted_titles, sorted_probs = pred_obj['sorted_titles'], pred_obj['sorted_probs']
-            pred_titles = []
-            for idx in range(min(len(sorted_titles), args.sent_retrieve_range)):
-                pred_titles.append(sorted_titles[idx])
-            
-            context = []
+        uid_to_supporting_fact = {}
+        for e in hover_data:
+            uid, claim, supporting_facts = e['uid'], e['claim'], e['supporting_facts']
+            assert uid not in uid_to_supporting_fact
+            uid_to_supporting_fact[uid] = [claim, supporting_facts]
+
+        data_for_sent_ret = []
+        try:
+            for uid in tqdm(doc_retrieval_predictions.keys()):
+                pred_obj = doc_retrieval_predictions[uid]
+                sorted_titles, sorted_probs = pred_obj['sorted_titles'], pred_obj['sorted_probs']
+                pred_titles = []
+                for idx in range(min(len(sorted_titles), args.sent_retrieve_range)):
+                    pred_titles.append(sorted_titles[idx])
                 
-            if uid in uid_to_supporting_fact:
-                claim, supporting_facts = uid_to_supporting_fact[uid]
-                sp_title_to_sp = {}
-                for _sp in supporting_facts:
-                    if _sp[0] not in sp_title_to_sp:
-                        sp_title_to_sp[_sp[0]] = [_sp[1]]
-                    else:
-                        sp_title_to_sp[_sp[0]].append(_sp[1])
+                context = []
+                    
+                if uid in uid_to_supporting_fact:
+                    claim, supporting_facts = uid_to_supporting_fact[uid]
+                    sp_title_to_sp = {}
+                    for _sp in supporting_facts:
+                        if _sp[0] not in sp_title_to_sp:
+                            sp_title_to_sp[_sp[0]] = [_sp[1]]
+                        else:
+                            sp_title_to_sp[_sp[0]].append(_sp[1])
 
-                for title in pred_titles:
-                    try:
-                        para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
-                                                        (unicodedata.normalize('NFD', title),)).fetchall()[0]
-                        para_title, para_text = list(para)
-                        # Replace [SENT] tokens
-                        para_text = str(para_text).replace("[SENT]", " ")
-                        para_parse = corenlp.annotate(para_text)
-                        para_sents = []
-                        for sent_parse in para_parse['sentences']:
-                            start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
-                            end_idx = sent_parse['tokens'][-1]['characterOffsetEnd']
-                            sent = para_text[start_idx:end_idx]
-                            para_sents.append(sent)
-                        context.append([title, para_sents])
-                    except ValueError:
-                        continue
+                    for title in pred_titles:
+                        try:
+                            para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
+                                                            (unicodedata.normalize('NFD', title),)).fetchall()[0]
+                            para_title, para_text = list(para)
+                            if "[SENT]" in para_text:
+                                para_text = " ".join(para_text.split("[SENT]"))
+                            para_parse = corenlp.annotate(para_text)
+                            para_sents = []
+                            for sent_parse in para_parse['sentences']:
+                                start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
+                                end_idx = sent_parse['tokens'][-1]['characterOffsetEnd']
+                                sent = para_text[start_idx:end_idx]
+                                para_sents.append(sent)
+                            context.append([title, para_sents])
+                        except ValueError:
+                            continue
 
-                dp = {'id': uid, 'claim': claim, 'context': context, 'supporting_facts': supporting_facts}
-                data_for_sent_ret.append(dp)
-                # data_for_sent_ret_dict[uid] = dp
-            else:
-                print(uid)
-                print(claim)
-                assert False
-    except Exception as e:
-        print(e)
+                    dp = {'id': uid, 'claim': claim, 'context': context, 'supporting_facts': supporting_facts}
+                    data_for_sent_ret.append(dp)
+                    # data_for_sent_ret_dict[uid] = dp
+                else:
+                    print(uid)
+                    print(claim)
+                    assert False
+        except Exception as e:
+            print(e)
 
-    logging.info("Saving prepared data ...")
-    if args.oracle:
-        with open(os.path.join(args.data_dir, 'sent_retrieval', 'hover_'+args.data_split+'_sent_retrieval_oracle.json'), 'w', encoding="utf-8") as f:
-            json.dump(data_for_sent_ret, f)
-    else:
-        with open(os.path.join(args.data_dir, 'sent_retrieval', 'hover_'+args.data_split+'_sent_retrieval.json'), 'w', encoding="utf-8") as f:
-            json.dump(data_for_sent_ret, f)
-
+        logging.info("Saving prepared data ...")
+        if args.oracle:
+            with open(os.path.join(args.data_dir, 'sent_retrieval', args.dataset_name+'_'+args.data_split+'_sent_retrieval_oracle.json'), 'w', encoding="utf-8") as f:
+                json.dump(data_for_sent_ret, f)
+        else:
+            with open(os.path.join(args.data_dir, 'sent_retrieval', args.dataset_name+'_'+args.data_split+'_sent_retrieval.json'), 'w', encoding="utf-8") as f:
+                json.dump(data_for_sent_ret, f)
 
 if __name__ == "__main__":
-    monitor(main)
+    main()

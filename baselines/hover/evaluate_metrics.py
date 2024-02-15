@@ -1,8 +1,10 @@
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+import argparse
 import json
 import os
-from typing import List, Any
 import pandas as pd
+import re
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from typing import List, Any
 
 def read_data(predict_file: str, label_file: str) -> Any:
     """
@@ -24,6 +26,7 @@ def read_data(predict_file: str, label_file: str) -> Any:
 
     df_labels = pd.read_json(label_file)
     df_labels = df_labels[['uid', 'claim', 'label']]
+    df_labels['claim'] = df_labels['claim'].apply(lambda x: re.sub('\s+',' ', x))
     merge_df = pd.merge(df_pred, df_labels, on=['uid', 'claim'])
 
     # Convert labels to list concisting of 0's (Not supported) or 1's (Supported)
@@ -41,18 +44,26 @@ def metrics(true_labels: List[int], pred_labels: List[int]) -> None:
         - pred_labels (List[int]): list containing predicted labels for the claims.
     """
     acc = accuracy_score(true_labels, pred_labels)
-    prec, rec, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average="binary")
+    prec, rec, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average="weighted", zero_division=0)
     results = {"acc": acc, "f1": f1, "prec": prec, "rec": rec}
     results = {k: v*100 for k, v in results.items()}
     return results
 
 def main():
+    parser = parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--dataset_name",
+        default='hover',
+        type=str
+    )
+    args = parser.parse_args()
+
     checkpoints = [str(num) for num in range(100, 3100, 100)]
-    labels = os.path.join("data", "hover", "hover_dev_release_v1.1.json")
+    labels = os.path.join("data", args.dataset_name, f"{args.dataset_name}_dev_release_v1.1.json")
 
     results = []
     for check in checkpoints:
-        predict = os.path.join("out", "hover", "exp1.0", "claim_verification", 'checkpoint-'+ check, "dev_predictions_.json")
+        predict = os.path.join("out", args.dataset_name, "exp1.0", "claim_verification", 'checkpoint-'+ check, "dev_predictions_.json")
         true_labels, pred_labels = read_data(predict_file=predict, label_file=labels)
         check_result = metrics(true_labels=true_labels, pred_labels=pred_labels)
         # print(f'Checkpoint-{check}' ,',    '.join([f'{k}: {v:.2f}%' for k,v in check_result.items()]))

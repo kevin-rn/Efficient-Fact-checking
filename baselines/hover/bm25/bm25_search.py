@@ -2,10 +2,11 @@ import tqdm
 import time
 from typing import List, Dict
 from ELasticSearch import ElasticSearch
+import os
 import sys 
 
 sys.path.append(sys.path[0] + '/../../..')
-from scripts.monitor_utils import ProcessMonitor, get_dir_size, format_size
+from scripts.monitor_utils import ProcessMonitor, format_size
 
 def sleep(seconds):
     if seconds: time.sleep(seconds)
@@ -46,12 +47,11 @@ class BM25Search():
         sleep(self.sleep_for)
         self.es.create_index()
 
-        pm = ProcessMonitor()
-        pm.start()
-        self.index(corpus)
-        # Sleep for few seconds so that elastic-search indexes the docs properly
-        sleep(self.sleep_for)
-        pm.stop()
+        with ProcessMonitor() as pm:
+            pm.start()
+            self.index(corpus)
+            # Sleep for few seconds so that elastic-search indexes the docs properly
+            sleep(self.sleep_for)
         size = self.es.get_index_size()
         print(f"BM25 index size: {format_size(size)}")
 

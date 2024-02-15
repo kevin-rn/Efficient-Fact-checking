@@ -8,6 +8,10 @@ import unicodedata
 import logging
 from tqdm import tqdm 
 
+import sys
+sys.path.append(sys.path[0] + '/../..')
+from scripts.monitor_utils import ProcessMonitor
+
 def connect_to_db(db_path):
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -53,100 +57,81 @@ def main():
         action="store_true"
     )
 
-    parser.add_argument(
-        "--modified",
-        action='store_true'
-    )
-
     args = parser.parse_args()
+    with ProcessMonitor(dataset=args.dataset_name) as pm:
+        pm.start()
+        if args.db_name:
+            wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
+        else:
+            wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
-    if args.db_name:
-        wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
-    else:
-        wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
+        args.data_dir = os.path.join(args.data_dir, args.dataset_name)
 
-    args.data_dir = os.path.join(args.data_dir, args.dataset_name)
+        hover_data = json.load(open(os.path.join(args.data_dir, args.dataset_name+'_'+args.data_split+'_release_v1.1.json')))
+        # tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'tfidf_retrieved', args.data_split+'_tfidf_doc_retrieval_results.json')))
+        tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'bm25_retrieved', args.data_split+'_bm25_doc_retrieval_results.json')))
 
-    hover_data = json.load(open(os.path.join(args.data_dir, 'hover_'+args.data_split+'_release_v1.1.json')))
-    # tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'tfidf_retrieved', args.data_split+'_tfidf_doc_retrieval_results.json')))
-    tfidf_retrieved_doc = json.load(open(os.path.join(args.data_dir, 'bm25_retrieved', args.data_split+'_bm25_doc_retrieval_results.json')))
+        uid_to_tfidf_retrieved_doc = {}
+        for e in tfidf_retrieved_doc:
+            uid = e['id']
+            assert uid not in uid_to_tfidf_retrieved_doc
+            uid_to_tfidf_retrieved_doc[uid] = e['doc_retrieval_results'][0][0]
 
-    uid_to_tfidf_retrieved_doc = {}
-    for e in tfidf_retrieved_doc:
-        uid = e['id']
-        assert uid not in uid_to_tfidf_retrieved_doc
-        uid_to_tfidf_retrieved_doc[uid] = e['doc_retrieval_results'][0][0]
+        hover_data_w_tfidf_docs = []
 
-    hover_data_w_tfidf_docs = []
+        try:
+            for e in tqdm(hover_data):
+                uid, num_hops, supporting_facts = e['uid'], e['num_hops'], e['supporting_facts']
+                retrieved_docs = uid_to_tfidf_retrieved_doc[uid]
+                golden_docs = []
+                for sp in supporting_facts:
+                    if sp[0] not in golden_docs:
+                        golden_docs.append(sp[0])
 
-    try:
-        for e in tqdm(hover_data):
-            uid, num_hops, supporting_facts = e['uid'], e['num_hops'], e['supporting_facts']
-            retrieved_docs = uid_to_tfidf_retrieved_doc[uid]
-            golden_docs = []
-            for sp in supporting_facts:
-                if sp[0] not in golden_docs:
-                    golden_docs.append(sp[0])
+                context, labels = [], []
 
-            context, labels = [], []
+                if args.oracle:
+                    for doc_title in golden_docs:
+                        para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
+                                                    (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
+                        context.append(list(para))
+                        labels.append(1)
 
-            if args.oracle:
-                for doc_title in golden_docs:
-                    para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
-                                                (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
-                    context.append(list(para))
-                    labels.append(1)
-
-            if args.modified:
+                
                 for doc_title in retrieved_docs[:20]:
                     if args.oracle and doc_title in golden_docs:
                         continue
                     para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
                                                     (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
-                    title = str(para[0]) # skip title
+                    para_title, para_text = list(para)
 
                     # New wiki db containing only claims
-                    sentences = [sent.strip() for sent in para[1].split('[SENT]') if sent]
-                    sentences.insert(0, title)
-                    context.append(sentences)
+                    if '[SENT]' in para_text:
+                        paragraph = para_text.split('[SENT]')
+                        paragraph.insert(0, para_title)
+                        context.append(paragraph)
+                    else:
+                        context.append(para)
 
                     if doc_title in golden_docs:
                         labels.append(1)
                     else:
                         labels.append(0)
-            else:
-                for doc_title in retrieved_docs[:20]:
-                    if args.oracle and doc_title in golden_docs:
-                        continue
-                    para = wiki_db.execute("SELECT id, text FROM documents WHERE id=(?)", \
-                                                    (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
-                    paragraph = list(para)
-                    paragraph[1] = paragraph[1].replace("[SENT]", " ")
-                    context.append(paragraph)
-                    if doc_title in golden_docs:
-                        labels.append(1)
-                    else:
-                        labels.append(0)
 
-            e['context'] = context[:20]
-            e['labels'] = labels[:20]
-            hover_data_w_tfidf_docs.append(e)
-    except Exception as e:
-        print(e)
-        exit()
+                e['context'] = context[:20]
+                e['labels'] = labels[:20]
+                hover_data_w_tfidf_docs.append(e)
+        except Exception as e:
+            print(e)
+            exit()
 
-    logging.info("Saving prepared data ...")
-    if args.oracle:
-        with open(os.path.join(args.data_dir, 'doc_retrieval', 'hover_'+args.data_split+'_doc_retrieval_oracle.json'), 'w', encoding="utf-8") as f:
-            json.dump(hover_data_w_tfidf_docs, f)
-    else:
-        with open(os.path.join(args.data_dir, 'doc_retrieval', 'hover_'+args.data_split+'_doc_retrieval.json'), 'w', encoding="utf-8") as f:
-            json.dump(hover_data_w_tfidf_docs, f)
-
-
+        logging.info("Saving prepared data ...")
+        if args.oracle:
+            with open(os.path.join(args.data_dir, 'doc_retrieval', args.dataset_name+'_'+args.data_split+'_doc_retrieval_oracle.json'), 'w', encoding="utf-8") as f:
+                json.dump(hover_data_w_tfidf_docs, f)
+        else:
+            with open(os.path.join(args.data_dir, 'doc_retrieval', args.dataset_name+'_'+args.data_split+'_doc_retrieval.json'), 'w', encoding="utf-8") as f:
+                json.dump(hover_data_w_tfidf_docs, f)
 
 if __name__ == "__main__":
-    import sys
-    sys.path.append(sys.path[0] + '/../..')
-    from scripts.monitor_utils import monitor
-    monitor(main)
+    main()

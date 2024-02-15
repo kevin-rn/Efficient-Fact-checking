@@ -32,20 +32,20 @@ python prepare_data_for_doc_retrieval.py --data_split=dev --doc_retrieve_range=2
 ```
 This will add the top-20 TF-IDF retrieved documents to the data as candidates of the following neural document retrieval stage.
 
-* Run `./train_scripts/train_doc_retrieval.sh modified`. The model checkpoints are saved in `out/hover/exp1.0/doc_retrieval`.
+* Run `./cmds/train_scripts/train_doc_retrieval.sh modified`. The model checkpoints are saved in `out/hover/exp1.0/doc_retrieval`.
 
 ### Evaluating Neural-based Document Retrieval Model
 * Run the evaluation:
 ```
-./eval_scripts/eval_doc_retrieval_on_train.sh modified
-./eval_scripts/eval_doc_retrieval_on_dev.sh modified
+./cmds/eval_scripts/eval_doc_retrieval_on_train.sh modified
+./cmds/eval_scripts/eval_doc_retrieval_on_dev.sh modified
 ``` 
 This will evaluate the model on both the training set and dev set because we need both predictions to construct the training/dev set for the sentence selection.
 
 ## Alternatively 1. Dense retrieval
 * Perform FAISS top-k document retrieval. Output will be stored inside the `hover/data/hover/claim_verification` folder
 ```
-python faiss/run_faiss_search.py [--top_k_nn=OTHER_VALUE]
+python faiss/run_faiss_search.py [--setting=VALUE] [--top_k_nn=OTHER_VALUE] [--use_gpu]
 ```
 * to avoid topic drift by reranking sentences add:
 ```
@@ -67,15 +67,15 @@ python prepare_data_for_sent_retrieval.py --data_split=dev --sent_retrieve_range
 ```
 This will add the sentences from the top-5 retrieved documents as candidates of the following sentence selection stage.
 
-* Run `./train_scripts/train_sent_retrieval.sh`. The model checkpoints are saved in `out/hover/exp1.0/sent_retrieval`.
+* Run `./cmds/train_scripts/train_sent_retrieval.sh`. The model checkpoints are saved in `out/hover/exp1.0/sent_retrieval`.
 
 
 
 ### Evaluating Sentence-selection Model
 * Run the evaluation:
 ```
-./eval_scripts/eval_sent_retrieval_on_train.sh
-./eval_scripts/eval_sent_retrieval_on_dev.sh
+./cmds/eval_scripts/eval_sent_retrieval_on_train.sh
+./cmds/eval_scripts/eval_sent_retrieval_on_dev.sh
 ``` 
 This will evaluate the model on both the training set and dev set because we need both predictions to construct the training/dev set for the claim verification.
 
@@ -94,12 +94,12 @@ python prepare_data_for_claim_verification.py --data_split=train
 python prepare_data_for_claim_verification.py --data_split=dev
 ```
 
-* Run `./train_scripts/train_claim_verification.sh`. The model checkpoints are saved in `out/hover/exp1.0/claim_verification`.
+* Run `./cmds/train_scripts/train_claim_verification.sh`. The model checkpoints are saved in `out/hover/exp1.0/claim_verification`.
 
 ### Evaluating Claim-verification Model
 * Run the evaluation:
 ```
-./eval_scripts/eval_claim_verification_on_dev.sh
+./cmds/eval_scripts/eval_claim_verification_on_dev.sh
 ```
 
 ## Citation

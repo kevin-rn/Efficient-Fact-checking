@@ -30,8 +30,9 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 import sys
+from transformers import BERT_PRETRAINED_CONFIG_ARCHIVE_MAP
 sys.path.append(sys.path[0] + '/../..')
-from scripts.monitor_utils import monitor
+from scripts.monitor_utils import ProcessMonitor
 
 from transformers import (
     WEIGHTS_NAME,
@@ -490,10 +491,10 @@ def load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=Fal
         else:
             processor = HoverV1Processor()
             if evaluate:
-                examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file, is_modified=args.modified)
+                examples = processor.get_dev_examples(args.data_dir, filename=args.predict_file)
             else:
-                examples = processor.get_train_examples(args.data_dir, filename=args.train_file, is_modified=args.modified)
-
+                examples = processor.get_train_examples(args.data_dir, filename=args.train_file)
+        
         features, dataset = hover_convert_examples_to_features(
             examples=examples,
             tokenizer=tokenizer,
@@ -739,195 +740,193 @@ def main():
     parser.add_argument(
         "--ckpt_to_evaluate", type=str, default="100"
     )
-    parser.add_argument(
-        "--modified", action='store_true'
-    )
     args = parser.parse_args()
+    with ProcessMonitor(dataset=args.dataset_name) as pm:
+        pm.start()
 
-    if args.oracle:
-        args.train_file = args.train_file[:-5] + '_oracle.json'
-        if args.eval_on_oracle:
-            args.predict_file = args.predict_file[:-5] + '_oracle.json'
+        if args.oracle:
+            args.train_file = args.train_file[:-5] + '_oracle.json'
+            if args.eval_on_oracle:
+                args.predict_file = args.predict_file[:-5] + '_oracle.json'
 
-    if args.sub_task == 'doc_retrieval':
-        from my_transformers.modeling_bert import BertForMultiClassMultipleChoice
-        MODEL_CLASSES['bert'] = (BertConfig, BertForMultiClassMultipleChoice, BertTokenizer)
-    elif args.sub_task == 'sent_retrieval':
-        from my_transformers.modeling_bert import BertForMultiClassMultipleChoiceSp
-        MODEL_CLASSES['bert'] = (BertConfig, BertForMultiClassMultipleChoiceSp, BertTokenizer)
-    elif args.sub_task == 'claim_verification':
-        from my_transformers.modeling_bert import BertForSequenceClassification
-        MODEL_CLASSES['bert'] = (BertConfig, BertForSequenceClassification, BertTokenizer)
+        if args.sub_task == 'doc_retrieval':
+            from my_transformers.modeling_bert import BertForMultiClassMultipleChoice
+            MODEL_CLASSES['bert'] = (BertConfig, BertForMultiClassMultipleChoice, BertTokenizer)
+        elif args.sub_task == 'sent_retrieval':
+            from my_transformers.modeling_bert import BertForMultiClassMultipleChoiceSp
+            MODEL_CLASSES['bert'] = (BertConfig, BertForMultiClassMultipleChoiceSp, BertTokenizer)
+        elif args.sub_task == 'claim_verification':
+            from my_transformers.modeling_bert import BertForSequenceClassification
+            MODEL_CLASSES['bert'] = (BertConfig, BertForSequenceClassification, BertTokenizer)
 
-    if args.doc_stride >= args.max_seq_length - args.max_query_length:
-        logger.warning(
-            "WARNING - You've set a doc stride which may be superior to the document length in some "
-            "examples. This could result in errors when building features from the examples. Please reduce the doc "
-            "stride or increase the maximum length to ensure the features are correctly built."
-        )
-
-    args.data_dir = os.path.join(args.data_dir, args.dataset_name, args.sub_task)
-    args.output_dir = os.path.join('out', args.dataset_name, args.output_dir, args.sub_task)
-
-    if (
-        os.path.exists(args.output_dir)
-        and os.listdir(args.output_dir)
-        and args.do_train
-        and not args.overwrite_output_dir
-    ):
-        raise ValueError(
-            "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
-                args.output_dir
+        if args.doc_stride >= args.max_seq_length - args.max_query_length:
+            logger.warning(
+                "WARNING - You've set a doc stride which may be superior to the document length in some "
+                "examples. This could result in errors when building features from the examples. Please reduce the doc "
+                "stride or increase the maximum length to ensure the features are correctly built."
             )
+
+        args.data_dir = os.path.join(args.data_dir, args.dataset_name, args.sub_task)
+        args.output_dir = os.path.join('out', args.dataset_name, args.output_dir, args.sub_task)
+
+        if (
+            os.path.exists(args.output_dir)
+            and os.listdir(args.output_dir)
+            and args.do_train
+            and not args.overwrite_output_dir
+        ):
+            raise ValueError(
+                "Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(
+                    args.output_dir
+                )
+            )
+
+        # Setup distant debugging if needed
+        if args.server_ip and args.server_port:
+            # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
+            import ptvsd
+
+            print("Waiting for debugger attach")
+            ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
+            ptvsd.wait_for_attach()
+
+        # Setup CUDA, GPU & distributed training
+        if args.local_rank == -1 or args.no_cuda:
+            device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
+            # args.n_gpu = torch.cuda.device_count()
+            #CHANGED: Some issues with parrallel gpu usage
+            args.n_gpu = 1
+        else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
+            torch.cuda.set_device(args.local_rank)
+            device = torch.device("cuda:1", args.local_rank)
+            torch.distributed.init_process_group(backend="nccl")
+            args.n_gpu = 1
+        args.device = device
+
+        # Setup logging
+        logging.basicConfig(
+            format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
+            datefmt="%m/%d/%Y %H:%M:%S",
+            level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
+        )
+        logger.warning(
+            "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
+            args.local_rank,
+            device,
+            args.n_gpu,
+            bool(args.local_rank != -1),
+            args.fp16,
         )
 
-    # Setup distant debugging if needed
-    if args.server_ip and args.server_port:
-        # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
-        import ptvsd
+        # Set seed
+        set_seed(args)
 
-        print("Waiting for debugger attach")
-        ptvsd.enable_attach(address=(args.server_ip, args.server_port), redirect_output=True)
-        ptvsd.wait_for_attach()
+        # Load pretrained model and tokenizer
+        if args.local_rank not in [-1, 0]:
+            # Make sure only the first process in distributed training will download model & vocab
+            torch.distributed.barrier()
 
-    # Setup CUDA, GPU & distributed training
-    if args.local_rank == -1 or args.no_cuda:
-        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-        # args.n_gpu = torch.cuda.device_count()
-        #CHANGED: Some issues with parrallel gpu usage
-        args.n_gpu = 1
-    else:  # Initializes the distributed backend which will take care of sychronizing nodes/GPUs
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device("cuda:1", args.local_rank)
-        torch.distributed.init_process_group(backend="nccl")
-        args.n_gpu = 1
-    args.device = device
+        args.model_type = args.model_type.lower()
+        config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
+        config = config_class.from_pretrained(
+            args.config_name if args.config_name else args.model_name_or_path,
+            cache_dir=args.cache_dir if args.cache_dir else None,
+        )
+        if args.sub_task == 'claim_verification':
+            config.num_labels = 2
 
-    # Setup logging
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s",
-        datefmt="%m/%d/%Y %H:%M:%S",
-        level=logging.INFO if args.local_rank in [-1, 0] else logging.WARN,
-    )
-    logger.warning(
-        "Process rank: %s, device: %s, n_gpu: %s, distributed training: %s, 16-bits training: %s",
-        args.local_rank,
-        device,
-        args.n_gpu,
-        bool(args.local_rank != -1),
-        args.fp16,
-    )
+        tokenizer = tokenizer_class.from_pretrained(
+            args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
+            do_lower_case=args.do_lower_case,
+            cache_dir=args.cache_dir if args.cache_dir else None,
+        )
+        model = model_class.from_pretrained(
+            args.model_name_or_path,
+            from_tf=bool(".ckpt" in args.model_name_or_path),
+            config=config,
+            cache_dir=args.cache_dir if args.cache_dir else None,
+        )
 
-    # Set seed
-    set_seed(args)
+        if args.local_rank == 0:
+            # Make sure only the first process in distributed training will download model & vocab
+            torch.distributed.barrier()
 
-    # Load pretrained model and tokenizer
-    if args.local_rank not in [-1, 0]:
-        # Make sure only the first process in distributed training will download model & vocab
-        torch.distributed.barrier()
-
-    args.model_type = args.model_type.lower()
-    config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(
-        args.config_name if args.config_name else args.model_name_or_path,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
-    if args.sub_task == 'claim_verification':
-        config.num_labels = 2
-
-    tokenizer = tokenizer_class.from_pretrained(
-        args.tokenizer_name if args.tokenizer_name else args.model_name_or_path,
-        do_lower_case=args.do_lower_case,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
-    model = model_class.from_pretrained(
-        args.model_name_or_path,
-        from_tf=bool(".ckpt" in args.model_name_or_path),
-        config=config,
-        cache_dir=args.cache_dir if args.cache_dir else None,
-    )
-
-    if args.local_rank == 0:
-        # Make sure only the first process in distributed training will download model & vocab
-        torch.distributed.barrier()
-
-    model.to(args.device)
-
-    logger.info("Training/evaluation parameters %s", args)
-
-    # Before we do anything with models, we want to ensure that we get fp16 execution of torch.einsum if args.fp16 is set.
-    # Otherwise it'll default to "promote" mode, and we'll get fp32 operations. Note that running `--fp16_opt_level="O2"` will
-    # remove the need for this code, but it is still valid.
-    if args.fp16:
-        try:
-            import apex
-
-            apex.amp.register_half_function(torch, "einsum")
-        except ImportError:
-            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
-
-    # Training
-    if args.do_train:
-        train_dataset = load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False)
-        global_step, tr_loss = train(args, train_dataset, model, tokenizer)
-        logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
-
-    # Save the trained model and the tokenizer
-    if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        # Create output directory if needed
-        if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
-            os.makedirs(args.output_dir)
-
-        logger.info("Saving model checkpoint to %s", args.output_dir)
-        # Save a trained model, configuration and tokenizer using `save_pretrained()`.
-        # They can then be reloaded using `from_pretrained()`
-        # Take care of distributed/parallel training
-        model_to_save = model.module if hasattr(model, "module") else model
-        model_to_save.save_pretrained(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
-
-        # Good practice: save your training arguments together with the trained model
-        torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
-
-        # Load a trained model and vocabulary that you have fine-tuned
-        model = model_class.from_pretrained(args.output_dir)  # , force_download=True)
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model.to(args.device)
 
-    # Evaluation - we can ask to evaluate all the checkpoints (sub-directories) in a directory
-    results = {}
-    if args.do_eval and args.local_rank in [-1, 0]:
-        #if args.do_train:
-        logger.info("Loading checkpoints saved during training for evaluation")
-        checkpoints = [os.path.join(args.output_dir, 'checkpoint-'+args.ckpt_to_evaluate)]
-        if args.eval_all_checkpoints:
-            checkpoints = list(
-                os.path.dirname(c)
-                for c in sorted(glob.glob(args.output_dir + "/**/" + WEIGHTS_NAME, recursive=True))
-            )
-            logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
-        # else:
-        #     logger.info("Loading checkpoint %s for evaluation", args.model_name_or_path)
-        #     checkpoints = [args.model_name_or_path]
+        logger.info("Training/evaluation parameters %s", args)
 
-        logger.info("Evaluate the following checkpoints: %s", checkpoints)
+        # Before we do anything with models, we want to ensure that we get fp16 execution of torch.einsum if args.fp16 is set.
+        # Otherwise it'll default to "promote" mode, and we'll get fp32 operations. Note that running `--fp16_opt_level="O2"` will
+        # remove the need for this code, but it is still valid.
+        if args.fp16:
+            try:
+                import apex
 
-        for checkpoint in checkpoints:
-            # Reload the model
-            global_step = checkpoint.split("-")[-1]
-            model = model_class.from_pretrained(checkpoint)  # , force_download=True)
+                apex.amp.register_half_function(torch, "einsum")
+            except ImportError:
+                raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use fp16 training.")
+
+        # Training
+        if args.do_train:
+            train_dataset = load_and_cache_examples(args, tokenizer, evaluate=False, output_examples=False)
+            global_step, tr_loss = train(args, train_dataset, model, tokenizer)
+            logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
+
+        # Save the trained model and the tokenizer
+        if args.do_train and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
+            # Create output directory if needed
+            if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
+                os.makedirs(args.output_dir)
+
+            logger.info("Saving model checkpoint to %s", args.output_dir)
+            # Save a trained model, configuration and tokenizer using `save_pretrained()`.
+            # They can then be reloaded using `from_pretrained()`
+            # Take care of distributed/parallel training
+            model_to_save = model.module if hasattr(model, "module") else model
+            model_to_save.save_pretrained(args.output_dir)
+            tokenizer.save_pretrained(args.output_dir)
+
+            # Good practice: save your training arguments together with the trained model
+            torch.save(args, os.path.join(args.output_dir, "training_args.bin"))
+
+            # Load a trained model and vocabulary that you have fine-tuned
+            model = model_class.from_pretrained(args.output_dir)  # , force_download=True)
+            tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
             model.to(args.device)
 
-            # Evaluate
-            result = evaluate(args, model, tokenizer, global_step)
+        # Evaluation - we can ask to evaluate all the checkpoints (sub-directories) in a directory
+        results = {}
+        if args.do_eval and args.local_rank in [-1, 0]:
+            #if args.do_train:
+            logger.info("Loading checkpoints saved during training for evaluation")
+            checkpoints = [os.path.join(args.output_dir, 'checkpoint-'+args.ckpt_to_evaluate)]
+            if args.eval_all_checkpoints:
+                checkpoints = list(
+                    os.path.dirname(c)
+                    for c in sorted(glob.glob(args.output_dir + "/**/" + WEIGHTS_NAME, recursive=True))
+                )
+                logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce model loading logs
+            # else:
+            #     logger.info("Loading checkpoint %s for evaluation", args.model_name_or_path)
+            #     checkpoints = [args.model_name_or_path]
 
-            result = dict((k + ("_{}".format(global_step) if global_step else ""), v) for k, v in result.items())
-            results.update(result)
+            logger.info("Evaluate the following checkpoints: %s", checkpoints)
 
-    logger.info("Results: {}".format(results))
+            for checkpoint in checkpoints:
+                # Reload the model
+                global_step = checkpoint.split("-")[-1]
+                model = model_class.from_pretrained(checkpoint)  # , force_download=True)
+                model.to(args.device)
 
-    return results
+                # Evaluate
+                result = evaluate(args, model, tokenizer, global_step)
 
+                result = dict((k + ("_{}".format(global_step) if global_step else ""), v) for k, v in result.items())
+                results.update(result)
+
+        logger.info("Results: {}".format(results))
+
+        return results
 
 if __name__ == "__main__":
-    monitor(main)
+    main()

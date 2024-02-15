@@ -11,9 +11,9 @@ import time
 from torch import Tensor
 from tqdm import tqdm
 
-sys.path.append(sys.path[0] + '/../..')
+sys.path.append(sys.path[0] + "/../..".replace("/", os.path.sep))
 from unq.lib import UNQModel, UNQSearch, Trainer
-sys.path.append(sys.path[0] + '/../../..')
+sys.path.append(sys.path[0] + "/../../..".replace("/", os.path.sep))
 from scripts.monitor_utils import format_size
 
 

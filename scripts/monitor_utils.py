@@ -3,7 +3,6 @@ import psutil
 from threading import Thread
 import math
 import nvidia_smi
-from typing import Any
 from pathlib import Path
 import os
 
@@ -78,7 +77,7 @@ class ProcessMonitor(Thread):
     """
     Monitor the performance of a function, including elapsed time, data, output size, and memory usage.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, dataset, *args, **kwargs):
         """
         Initialises Thread class.
         """
@@ -92,8 +91,8 @@ class ProcessMonitor(Thread):
         
         # Path to directories
         root = Path(__file__).parent.parent
-        self.data_path = os.path.join(root, "baselines", "hover", "data", "hover")
-        self.out_path = os.path.join(root, "baselines", "hover", "out", "hover", "exp1.0")
+        self.data_path = os.path.join(root, "baselines", "hover", "data", dataset)
+        self.out_path = os.path.join(root, "baselines", "hover", "out", dataset, "exp1.0")
 
         # Measure before running function
         self.data_before = get_dir_size(dir_path=self.data_path)
@@ -102,6 +101,9 @@ class ProcessMonitor(Thread):
         # Setup GPU monitoring before running
         nvidia_smi.nvmlInit()
         self.deviceCount = nvidia_smi.nvmlDeviceGetCount()
+    
+    def __enter__(self):
+        return self
 
     def run(self):
         """
@@ -135,7 +137,7 @@ class ProcessMonitor(Thread):
 
             print(f"GPU {device_i} - Util {util_stats:.1f}% - Mem: {format_size(mem_stats)}")
 
-    def stop(self):
+    def __exit__(self, type, value, traceback):
         """
         Stops monitoring thread and prints out stats.
         """
@@ -146,29 +148,16 @@ class ProcessMonitor(Thread):
 
         # Substract the before measurement to avoid overlapping processes being measured.
         total_time = end_time - self.start_time
-        total_data_folder = data_after - self.data_before
-        total_output_folder = out_after - self.out_before
         cpu = max(self.cpu_usage, default=0) - min(self.cpu_usage, default=0)
         mem = max(self.mem_usage, default=0) - min(self.mem_usage, default=0)
+
+        # Sleep few seconds for files to finish processing
+        time.sleep(2)
+        total_data_folder = data_after - self.data_before
+        total_output_folder = out_after - self.out_before
 
         print(f"Elapsed time: {format_time(total_time)}")
         print(f"HoVer datasplit: {format_size(total_data_folder)}, model data: {format_size(total_output_folder)}")
         print(f"CPU : {cpu:.1f}%")
         print(f"RAM : {format_size(mem)}")
         self.print_gpu_stats()
-
-def monitor(func: Any) -> Any:
-    """
-    Helper function to monitor function call and prints out various stats.
-
-    Args:
-        - func (Any): function to monitor.
-
-    Returns:
-        return value of the monitored function.
-    """
-    pm = ProcessMonitor()
-    pm.start()
-    return_value = func()
-    pm.stop()
-    return return_value

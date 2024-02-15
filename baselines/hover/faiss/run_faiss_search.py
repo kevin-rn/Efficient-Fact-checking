@@ -1,5 +1,4 @@
 from argparse import ArgumentParser
-from itertools import chain
 import json
 import numpy as np
 import os
@@ -8,15 +7,18 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import sqlite3
 import torch
+from tqdm import tqdm
 from typing import List, Dict
 from faiss_search import FaissSearch
+import re
 import sys
-sys.path.insert(0, sys.path[0] + '/../..')
+sys.path.append(sys.path[0] + "/../..".replace("/", os.path.sep))
 from scripts.monitor_utils import ProcessMonitor
-
+import unicodedata
 
 ### Argument parsing
-### e.g. python faiss/run_faiss_search.py --rerank_mode=none --n_neighbours=5 --n_rerank=5
+### e.g. python faiss/run_faiss_search.py --hover_stage=claim_verification --rerank_mode=none --n_neighbours=5 \
+### --n_rerank=5 --use_gpu --precompute_embed --compress_embed
 parser = ArgumentParser()
 
 parser.add_argument(
@@ -26,6 +28,12 @@ parser.add_argument(
     help="Name of the setting to run"
 )
 
+parser.add_argument(
+   "--dataset_name",
+   type=str,
+   default="hover",
+   help="Name of the claim data to evaluate on [hover | wice]"
+)
 parser.add_argument(
     "--hover_stage",
     default="claim_verification",
@@ -97,13 +105,11 @@ def setup_faiss_search() -> FaissSearch:
     conn = sqlite3.connect(ENWIKI_DB)
     wiki_db = conn.cursor()
     results = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
-    title_list = np.array([doc[0] for doc in results])
-    doc_list = [str(doc[1]).replace("[SENT]", " ") for doc in results]
-
     conn.close()
+    title_list = np.array([doc[0] for doc in results])
+    doc_list = [" ".join(doc[1].split("[SENT]")) for doc in tqdm(results, desc="Get document text")]
 
-    # Create or load FAISS index.
-    print("-- Creating FAISS index --")
+    print("-- Create FAISS index --")
     emb_dim, n_codebooks = encoder.get_sentence_embedding_dimension(), 16
     faiss_search = FaissSearch(data=title_list, 
                             emb_dim=n_codebooks if args.compress_embed else emb_dim,
@@ -116,21 +122,20 @@ def setup_faiss_search() -> FaissSearch:
         faiss_search.setup_compression_model(checkpoint_path=UNQ_CHECKPOINT, vect_dim=emb_dim, n_codebooks=n_codebooks)
 
     if not faiss_search.load_index_if_available():
-
-        pm = ProcessMonitor()
-        pm.start()
-        with torch.no_grad():
+        with ProcessMonitor(dataset=args.dataset_name) as pm, torch.no_grad():
+            pm.start()
             if args.precompute_embed and os.path.exists(EMBED_FILE):
                     emb_list = []
                     with h5py.File(EMBED_FILE, 'r') as hf:
                         for group_name in hf.keys():
-                            np.append(emb_list, hf[group_name][:])
+                            # emb_list = np.append(emb_list, hf[group_name][:])
+                            emb_list = hf[group_name][:]
             else:
-                emb_list = encoder.encode(doc_list, batch_size=128, show_progress_bar=True)
+                emb_list = encoder.encode(doc_list, batch_size=128, show_progress_bar=True, convert_to_numpy=True)
             faiss_search.create_index(emb_list)
             faiss_search.print_size_info()
-        pm.stop()
     return faiss_search
+
 
 def rerank_nn(claim_emb, doc_list: List[str], top_k: int, rerank_mode:str) -> str:
     """
@@ -151,11 +156,11 @@ def rerank_nn(claim_emb, doc_list: List[str], top_k: int, rerank_mode:str) -> st
     evidence_text = []
     match rerank_mode:
         case "none":
-            evidence_text = [sent for doc_text in doc_list for sent in doc_text.split('[SENT]') if sent.strip()]
+            evidence_text = [sent for doc_text in doc_list for sent in doc_text.split('[SENT]')]
         case "within":
             for doc_text in doc_list:
                 # Create embeddings for document sentences and compute cosine similarity between these and the original claim.
-                doc_sents = [sent for sent in doc_text.split('[SENT]') if sent.strip()]
+                doc_sents = doc_text.split('[SENT]')
                 if doc_sents:
                     with torch.no_grad():
                         doc_sents_embeds = encoder.encode(doc_sents, batch_size=1, show_progress_bar=True)
@@ -166,7 +171,7 @@ def rerank_nn(claim_emb, doc_list: List[str], top_k: int, rerank_mode:str) -> st
                     top_k_sents = " ".join([sent for sent in doc_sents if sent in top_k_sents])
                     evidence_text.append(top_k_sents)
         case "between":
-            doc_sents = [sent for doc_text in doc_list for sent in doc_text.split('[SENT]') if sent.strip()]
+            doc_sents = [sent for doc_text in doc_list for sent in doc_text.split('[SENT]')]
             if doc_sents:
                 with torch.no_grad():
                     doc_sents_embeds = encoder.encode(doc_sents, batch_size=1, show_progress_bar=True)
@@ -180,7 +185,7 @@ def rerank_nn(claim_emb, doc_list: List[str], top_k: int, rerank_mode:str) -> st
                 evidence_text = [sent for sent in doc_sents if sent in top_k_sents]
     return " ".join(evidence_text)
 
-def format_for_claim_verification(top_nn_results: Dict, claims: Dict, datasplit: str) -> None:
+def format_for_claim_verification(claim_args: dict) -> None:
     """
     Formats retrieved neighbours into data format for Claim Verification stage of the HoVer pipeline.
 
@@ -190,28 +195,28 @@ def format_for_claim_verification(top_nn_results: Dict, claims: Dict, datasplit:
         - datasplit (str): Name of the claim datasplit to process for.
     """
     results = []
-    docs = top_nn_results['docs']
-    claims_emb = top_nn_results['claim_embeds']
+    docs = claim_args['topk_nn']['docs']
+    claims_emb = claim_args['topk_nn']['claim_embeds']
     for idx in range(len(docs)):
-        claim_obj = claims[idx]
+        claim_obj = claim_args['claims'][idx]
         evidence_text = rerank_nn(claim_emb=claims_emb[idx], 
                                 doc_list=docs[idx], 
                                 top_k=args.n_rerank, 
                                 rerank_mode=args.rerank_mode)
 
         json_result = {'id': claim_obj['uid'], 
-                       'claim': claim_obj['claim'], 
+                       'claim': re.sub('\s+',' ', claim_obj['claim']), 
                        'context': evidence_text, 
                        'label': claim_obj['label']}
         results.append(json_result)
     assert len(results) == len(docs)
 
-    retrieve_file = os.path.join("data", "hover", "claim_verification", 
-                            f"hover_{datasplit}_claim_verification.json")
+    retrieve_file = os.path.join("data", claim_args['dataset_name'], "claim_verification", 
+                            f"hover_{claim_args['datasplit']}_claim_verification.json")
     with open(retrieve_file, 'w', encoding="utf-8") as f:
         json.dump(results, f)
 
-def format_for_sent_retrieval(top_nn_results: Dict, claims: Dict, datasplit: str) -> None:
+def format_for_sent_retrieval(claim_args: dict) -> None:
     """
     Formats retrieved neighbours into data format for Sent Retrieval stage of the HoVer pipeline.
 
@@ -221,29 +226,25 @@ def format_for_sent_retrieval(top_nn_results: Dict, claims: Dict, datasplit: str
         - datasplit (str): Name of the claim datasplit to process for.
     """
     results = []
-    doc_titles = top_nn_results['doc_titles']
-    docs = top_nn_results['docs']
+    doc_titles = claim_args['topk_nn']['doc_titles']
+    docs = claim_args['topk_nn']['docs']
     for idx in range(len(docs)):
-        context_data = []
-        claim_obj = claims[idx]
-        for doc_title, doc_text in zip(doc_titles[idx], docs[idx]):
-            evidence_sents =  [sent for sent in doc_text.split('[SENT]') if sent.strip()]
-            context_data.append([doc_title, evidence_sents])
+        claim_obj = claim_args['claims'][idx]
+        context_data = [[doc_title, doc_text.split('[SENT]')] for doc_title, doc_text in zip(doc_titles[idx], docs[idx])]
 
         json_result = {'id': claim_obj['uid'], 
-                       'claim': claim_obj['claim'], 
+                       'claim': re.sub('\s+',' ', claim_obj['claim']), 
                        'context': context_data, 
                        'supporting_facts': claim_obj['supporting_facts']}
         results.append(json_result)
 
 
-    retrieve_file = os.path.join("data", "hover", "sent_retrieval", 
-                        f"hover_{datasplit}_sent_retrieval.json")
+    retrieve_file = os.path.join("data", claim_args['dataset_name'], "sent_retrieval", 
+                        f"{claim_args['dataset_name']}_{claim_args['datasplit']}_sent_retrieval.json")
     with open(retrieve_file, 'w', encoding="utf-8") as f:
         json.dump(results, f)
 
-
-def claim_retrieval(faiss_search: FaissSearch, datasplit: str, batched: bool) -> None:
+def claim_retrieval(faiss_search: FaissSearch, dataset_name:str, data_split: str, batched: bool) -> None:
     """
     Retrieves for all the claims of a HoVer datasplit all top-k nearest neighbour texts 
     and formats it for claim verification.
@@ -252,36 +253,34 @@ def claim_retrieval(faiss_search: FaissSearch, datasplit: str, batched: bool) ->
         - faiss_search (FaissSearch): FAISS object used for dense retrieval.
     """
     # Embed claim
-    print(f"-- Retrieval for {datasplit} set --")
-    pm = ProcessMonitor()
-    pm.start()
-    claims_file = os.path.join("data", "hover", 
-                                f"hover_{datasplit}_release_v1.1.json")
-    with open(claims_file, 'r') as json_file:
-        claim_json = json.load(json_file)
-    claims = [claim_obj['claim'] for claim_obj in claim_json]
+    print(f"-- Retrieval for {data_split} set --")
 
-    # Retrieve for each claim the top-5 nearest neighbour documents.
-    topk_nn = faiss_search.get_top_n_neighbours(query_list=claims, 
-                                                top_k=args.n_neighbours, 
-                                                batched=batched,
-                                                doc_database=ENWIKI_DB)
-    pm.stop()
+    claims_file = os.path.join("data", dataset_name, f"{dataset_name}_{data_split}_release_v1.1.json")
+    with ProcessMonitor(dataset=dataset_name) as pm:
+        pm.start()
+        # Retrieve for each claim the top-5 nearest neighbour documents.
+        with open(claims_file, 'r') as json_file:
+            claim_json = json.load(json_file)
+        claims = [re.sub("\s+", " ", claim_obj['claim']) for claim_obj in claim_json]
+        topk_nn = faiss_search.get_top_n_neighbours(query_list=claims, 
+                                                    top_k=args.n_neighbours, 
+                                                    batched=batched,
+                                                    doc_database=ENWIKI_DB)
+        claim_args = {"topk_nn": topk_nn,
+                      "claims": claim_json,
+                      "dataset_name": dataset_name,
+                      "datasplit": data_split}
 
-    # Format output file
-    if args.hover_stage == "claim_verification":
-        format_for_claim_verification(top_nn_results=topk_nn, 
-                                      claims=claim_json, 
-                                      datasplit=datasplit)
-    else:
-        format_for_sent_retrieval(top_nn_results=topk_nn, 
-                                  claims=claim_json, 
-                                  datasplit=datasplit)
+        # Format output file
+        if args.hover_stage == "claim_verification":
+            format_for_claim_verification(claim_args=claim_args)
+        else:
+            format_for_sent_retrieval(claim_args=claim_args)
 
 def main():
     faiss = setup_faiss_search()
-    # claim_retrieval(faiss_search=faiss, datasplit="train", batched=True)
-    claim_retrieval(faiss_search=faiss, datasplit="dev", batched=False)
+    claim_retrieval(faiss_search=faiss, dataset_name=args.dataset_name, data_split="train", batched=True)
+    claim_retrieval(faiss_search=faiss, dataset_name=args.dataset_name, data_split="dev", batched=False)
     # faiss.remove_index()
 
 if __name__ == "__main__":
