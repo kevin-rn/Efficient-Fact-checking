@@ -20,15 +20,15 @@ We provide the top-100 Wikipedia articles retrieved by running [DRQA](https://gi
 ### BM25 (ElasticSearch)
 ```
 ./../../../numerical-llm/elasticsearch-8.11.3/bin/elasticsearch -d -p pid  
-python bm25/run_bm25_search.py
+python bm25/run_bm25_search.py --dataset_name=[DATASETNAME] [--db_name=DB_NAME]
 pkill -F ./../../../numerical-llm/elasticsearch-8.11.3/pid
 ```
 
 ### Training Neural-based Document Retrieval Model
 * Prepare the data by running:
 ```
-python prepare_data_for_doc_retrieval.py --data_split=train --doc_retrieve_range=20 --modified
-python prepare_data_for_doc_retrieval.py --data_split=dev --doc_retrieve_range=20 --modified
+python prepare_data_for_doc_retrieval.py --data_split=train --doc_retrieve_range=20 [-dataset_name=CLAIM_DATA_NAME] [--db_name=DB_NAME]
+python prepare_data_for_doc_retrieval.py --data_split=dev --doc_retrieve_range=20 [-dataset_name=CLAIM_DATA_NAME] [--db_name=DB_NAME]
 ```
 This will add the top-20 TF-IDF retrieved documents to the data as candidates of the following neural document retrieval stage.
 
@@ -37,8 +37,8 @@ This will add the top-20 TF-IDF retrieved documents to the data as candidates of
 ### Evaluating Neural-based Document Retrieval Model
 * Run the evaluation:
 ```
-./cmds/eval_scripts/eval_doc_retrieval_on_train.sh modified
-./cmds/eval_scripts/eval_doc_retrieval_on_dev.sh modified
+./cmds/eval_scripts/eval_doc_retrieval_on_train.sh CLAIM_DATA_NAME
+./cmds/eval_scripts/eval_doc_retrieval_on_dev.sh CLAIM_DATA_NAME
 ``` 
 This will evaluate the model on both the training set and dev set because we need both predictions to construct the training/dev set for the sentence selection.
 
@@ -62,8 +62,8 @@ java -mx4g -cp "*" edu.stanford.nlp.pipeline.StanfordCoreNLPServer -annotators "
 
 * Prepare the data by running:
 ```
-python prepare_data_for_sent_retrieval.py --data_split=train --sent_retrieve_range=5 --modified
-python prepare_data_for_sent_retrieval.py --data_split=dev --sent_retrieve_range=5 --modified
+python prepare_data_for_sent_retrieval.py --data_split=train --sent_retrieve_range=5 [-dataset_name=CLAIM_DATA_NAME] [--db_name=DB_NAME]
+python prepare_data_for_sent_retrieval.py --data_split=dev --sent_retrieve_range=5 [-dataset_name=CLAIM_DATA_NAME] [--db_name=DB_NAME]
 ```
 This will add the sentences from the top-5 retrieved documents as candidates of the following sentence selection stage.
 
@@ -90,8 +90,8 @@ python prepare_doc_retrieve_for_claim_verification.py --data_split=dev --doc_ret
 ### Training Claim-verification Model
 * Prepare the data by running:
 ```
-python prepare_data_for_claim_verification.py --data_split=train
-python prepare_data_for_claim_verification.py --data_split=dev
+python prepare_data_for_claim_verification.py --data_split=train [-dataset_name=CLAIM_DATA_NAME] [--db_name=DB_NAME]
+python prepare_data_for_claim_verification.py --data_split=dev [-dataset_name=CLAIM_DATA_NAME] [--db_name=DB_NAME]
 ```
 
 * Run `./cmds/train_scripts/train_claim_verification.sh`. The model checkpoints are saved in `out/hover/exp1.0/claim_verification`.
