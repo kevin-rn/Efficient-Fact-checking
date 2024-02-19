@@ -1,7 +1,5 @@
-claim_name=$1
-
 python3 run_hover.py \
---dataset_name $claim_name \
+--dataset_name $1 \
 --model_type bert \
 --model_name_or_path bert-base-uncased \
 --sub_task sent_retrieval \

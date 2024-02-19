@@ -7,15 +7,15 @@ from numpy import ndarray
 from torch import nn, Tensor
 from tqdm.autonotebook import trange
 from typing import List, Dict, Union, Tuple
+import os
 
-from transformers import RobertaModel, RobertaConfig
+from transformers import RobertaModel
 from transformers.models.roberta.modeling_roberta import RobertaPreTrainedModel
 
 from jpq.dataset import pack_tensor_2D
 from jpq.star_tokenizer import RobertaTokenizer as JPQTokenizer
 
 logger = logging.getLogger(__name__)
-
 
 class RobertaDot(RobertaPreTrainedModel):
     def __init__(self, config):
@@ -172,10 +172,12 @@ class JPQDualEncoder:
 
 class DenseRetrievalJPQSearch:
     
-    def __init__(self, model, batch_size: int = 128, corpus_index: faiss.Index = None, **kwargs):
+    def __init__(self, dataset_name, model, subvectors_num: int, batch_size: int = 128, corpus_index: faiss.Index = None, **kwargs):
+        self.dataset_name = dataset_name
         #model is class that provides encode_corpus() and encode_queries()
         self.model = model
         self.batch_size = batch_size
+        self.subvectors_num = subvectors_num 
         # Faiss has no cosine similarity metric
         self.score_functions = {'dot': faiss.METRIC_INNER_PRODUCT}
         self.score_function_desc = {'dot': "Dot Product"}
@@ -189,6 +191,33 @@ class DenseRetrievalJPQSearch:
         self.corpus_index = corpus_index
         self.results = {}
     
+    def index_corpus(self, 
+               corpus: Dict[str, Dict[str, str]], 
+               score_function: str,
+               index_path: str,
+                **kwargs) -> None:
+        if score_function not in self.score_functions:
+            raise ValueError("score function: {} must be either (dot) for dot product".format(score_function))
+        if os.path.isfile(index_path):
+            self.corpus_index = faiss.read_index(index_path)
+        else:
+            logger.info("Sorting Corpus by document length (Longest first)...")
+            corpus_ids = sorted(corpus, key=lambda k: len(corpus[k].get("title", "") + corpus[k].get("text", "")), reverse=True)
+            corpus = [corpus[cid] for cid in corpus_ids]
+
+            logger.info("Encoding Corpus in batches... Warning: This might take a while!")
+            logger.info("Scoring Function: {} ({})".format(self.score_function_desc[score_function], score_function))
+
+            self.corpus_index = self.model.encode_corpus(
+                corpus, batch_size=self.batch_size,
+                faiss_metric=self.score_functions[score_function],
+                show_progress_bar=self.show_progress_bar,
+                **kwargs
+            )
+            flat_index = faiss.index_gpu_to_cpu(self.corpus_index)
+            faiss.write_index(flat_index, )
+            logger.info("Saved Index")
+
     def search(self, 
                corpus: Dict[str, Dict[str, str]], 
                queries: Dict[str, str], 
@@ -220,22 +249,28 @@ class DenseRetrievalJPQSearch:
             self.corpus_index = self.model.encode_corpus(
                 corpus, batch_size=self.batch_size,
                 faiss_metric=self.score_functions[score_function],
-                show_progress_bar=self.show_progress_bar
+                show_progress_bar=self.show_progress_bar,
+                **kwargs
             )
+            flat_index = faiss.index_gpu_to_cpu(self.corpus_index)
+            faiss.write_index(flat_index, f"data/eval/OPQ{self.subvectors_num},IVF1,PQ{self.subvectors_num}x8.index")
+            logger.info("Saved Index")
         else:
             logger.warning("Skip the corpus encoding process and utilize pre-computed corpus_index")
         
         # keep self.corpus_index on cpu
-        if faiss.get_num_gpus() == 1:
+        if faiss.get_num_gpus() >= 1:
             logger.info("Transfering index to GPU-0")
             res = faiss.StandardGpuResources()
             co = faiss.GpuClonerOptions()
-            co.useFloat16 = faiss.downcast_index(self.corpus_index).pq.M >= 56
+            # co.useFloat16 = faiss.downcast_index(self.corpus_index).pq.M >= 56
+            co.useFloat16 = self.subvectors_num >= 56
             corpus_index = faiss.index_cpu_to_gpu(res, 0, self.corpus_index, co)
         elif faiss.get_num_gpus() > 1:
             logger.info("Transfering index to multiple GPUs")
             co = faiss.GpuMultipleClonerOptions()
-            co.useFloat16 = faiss.downcast_index(self.corpus_index).pq.M >= 56
+            # co.useFloat16 = faiss.downcast_index(self.corpus_index).pq.M >= 56
+            co.useFloat16 = self.subvectors_num >= 56
             corpus_index = faiss.index_cpu_to_all_gpus(self.corpus_index, co)
         else:
             corpus_index = self.corpus_index

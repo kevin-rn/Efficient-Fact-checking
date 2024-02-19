@@ -52,7 +52,7 @@ EMBED_FOLDER = os.path.join(BASE_PATH, "embed_files")
 is_full = "-first" if args.first_para_only else "-full" 
 sent_split = "-sent" if args.split_sent else ""
 FILENAME = args.setting + is_full + sent_split
-DB_PATH = os.path.join(BASE_PATH, "db_files", f"wiki_wo_links-{FILENAME}.db")
+DB_PATH = os.path.join(BASE_PATH, "db_files", f"{FILENAME}.db")
 
 ### MODEL ###
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -237,7 +237,7 @@ def main():
     if FILENAME in ["fusion-first", "fusion-full"]:
         cite_fusion()
     else:
-        db_args = {"path_location": os.path.join(ENWIKI_FOLDER, "enwiki-2017-" + args.setting),
+        db_args = {"path_location": os.path.join(ENWIKI_FOLDER, args.setting),
             "text": "text" if "original" in args.setting else "fact_text",
             "split_sent": args.split_sent,
             "first_only":args.first_para_only}

@@ -1,11 +1,10 @@
 data/
+!baselines/hover/my_transformers/*
 results/
-baselines/hover/data/
-baselines/hover/out/
 baselines/unq/notebooks/data/
-baselines/stanford-corenlp-4.5.5/
 models/
 out/
+stanford-corenlp-4.5.5/*
 **/__pycache__/
 **apicache-py3/
 .vscode/settings.json

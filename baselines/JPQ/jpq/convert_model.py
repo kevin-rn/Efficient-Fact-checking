@@ -48,7 +48,7 @@ def main():
     parser.add_argument("--subvector_num", type=int, required=True)
     args = parser.parse_args()
 
-    data_type = "doc" if args.data_type == 1 else "passage"
+    data_type = "doc" if args.data_type == 0 else "passage"
     m = args.subvector_num
     index_name = f"OPQ{m},IVF1,PQ{m}x8.index"
     jpq_path = (f"data/{data_type}/eval/m{m}/doc_encoder", f"data/{data_type}/eval/m{m}/query_encoder")

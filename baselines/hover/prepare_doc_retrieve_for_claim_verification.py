@@ -65,7 +65,7 @@ def main():
         pm.start()
 
         args.data_dir = os.path.join(args.data_dir, args.dataset_name)
-        doc_data = json.load(open(os.path.join(args.data_dir, 'doc_retrieval', args.dataset_name+'_' + args.data_split+'_doc_retrieval.json')))
+        doc_data = json.load(open(os.path.join(args.data_dir, 'doc_retrieval', 'hover_' + args.data_split+'_doc_retrieval.json')))
         args.doc_retrieval_output_dir = os.path.join('out', args.dataset_name, args.doc_retrieval_output_dir, 'doc_retrieval', \
             'checkpoint-'+str(args.doc_retrieval_model_global_step))
         doc_retrieval_predictions = json.load(open(os.path.join(args.doc_retrieval_output_dir, args.data_split+'_predictions_.json')))
@@ -124,7 +124,7 @@ def main():
                 data_for_claim_verif.append(dp)
 
         logging.info("Saving prepared data ...")
-        with open(os.path.join(args.data_dir, 'claim_verification', args.dataset_name+'_'+args.data_split+'_claim_verification.json'), 'w', encoding="utf-8") as f:
+        with open(os.path.join(args.data_dir, 'claim_verification', 'hover_'+args.data_split+'_claim_verification.json'), 'w', encoding="utf-8") as f:
             json.dump(data_for_claim_verif, f)
 
 if __name__ == "__main__":

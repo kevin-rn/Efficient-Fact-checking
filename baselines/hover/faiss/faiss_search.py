@@ -52,7 +52,7 @@ class FaissSearch:
         self.dir = idx_dir
         suffix = "_compressed" if use_compress else ""
         self.use_compress = use_compress
-        self.index_path = os.path.join(self.dir, f"index_faiss-{setting+suffix}")
+        self.index_path = os.path.join(self.dir, setting+suffix+".index")
         self.encoder = encoder
         self.use_gpu = use_gpu
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

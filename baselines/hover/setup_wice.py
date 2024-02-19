@@ -4,9 +4,16 @@ import jsonlines
 import os
 import wget
 
+# Claims
 URLS = ["https://raw.githubusercontent.com/ryokamoi/wice/main/data/entailment_retrieval/claim/train.jsonl",
         "https://raw.githubusercontent.com/ryokamoi/wice/main/data/entailment_retrieval/claim/dev.jsonl",
         "https://raw.githubusercontent.com/ryokamoi/wice/main/data/entailment_retrieval/claim/test.jsonl"]
+
+# Subclaims
+# URLS = ["https://raw.githubusercontent.com/ryokamoi/wice/main/data/entailment_retrieval/subclaim/train.jsonl",
+#         "https://raw.githubusercontent.com/ryokamoi/wice/main/data/entailment_retrieval/subclaim/dev.jsonl",
+#         "https://raw.githubusercontent.com/ryokamoi/wice/main/data/entailment_retrieval/subclaim/test.jsonl"]
+
 
 WICE_FOLDER = os.path.join("data", "wice")
 
@@ -52,6 +59,10 @@ def convert_wice():
 
 
 def main():
+    """
+    Downloads claim files from https://github.com/ryokamoi/wice 
+    and converts it to HoVer claim data format.
+    """
     download_wice()
     convert_wice()
 

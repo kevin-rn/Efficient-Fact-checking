@@ -2,7 +2,6 @@ import argparse
 import os
 import json
 import string
-import sqlite3
 import collections
 import unicodedata
 import logging
@@ -11,13 +10,6 @@ import nltk
 import sys
 sys.path.append(sys.path[0] + '/../..')
 from scripts.monitor_utils import ProcessMonitor
-
-
-def connect_to_db(db_path):
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    return c
-
 
 def main():
     parser = argparse.ArgumentParser()
@@ -59,7 +51,6 @@ def main():
     args = parser.parse_args()
     with ProcessMonitor(dataset=args.dataset_name) as pm:
         pm.start()
-        # wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
         args.data_dir = os.path.join(args.data_dir, args.dataset_name)
         hover_data = json.load(open(os.path.join(args.data_dir, args.dataset_name+'_'+args.data_split+'_release_v1.1.json')))
@@ -67,7 +58,7 @@ def main():
         args.sent_retrieval_output_dir = os.path.join('out', args.dataset_name, args.sent_retrieval_output_dir, 'sent_retrieval', \
             'checkpoint-'+str(args.sent_retrieval_model_global_step))
         sent_retrieval_predictions = json.load(open(os.path.join(args.sent_retrieval_output_dir, args.data_split+'_predictions_.json')))
-        sent_retrieval_data = json.load(open(os.path.join(args.data_dir, 'sent_retrieval', args.dataset_name+'_'+args.data_split+'_sent_retrieval.json')))
+        sent_retrieval_data = json.load(open(os.path.join(args.data_dir, 'sent_retrieval', 'hover_'+args.data_split+'_sent_retrieval.json')))
 
         uid_to_wikidocuments = {}
         for e in sent_retrieval_data:
@@ -96,17 +87,13 @@ def main():
                 sent = wiki_titles_to_documents[_doc_title][sent_id]
                 context.append(sent)
 
-            # print(predicted_sp)
-            # print(wiki_titles_to_documents)
-            # print(context)
-            # exit()
             context = ' '.join(context)
             label = uid_to_label[uid]
             dp = {'id': uid, 'claim': claim, 'context': context, 'label': label}
             data_for_claim_verif.append(dp)
 
         logging.info("Saving prepared data ...")
-        with open(os.path.join(args.data_dir, 'claim_verification', args.dataset_name+'_'+args.data_split+'_claim_verification.json'), 'w', encoding="utf-8") as f:
+        with open(os.path.join(args.data_dir, 'claim_verification', 'hover_'+args.data_split+'_claim_verification.json'), 'w', encoding="utf-8") as f:
             json.dump(data_for_claim_verif, f)
 
 if __name__ == "__main__":

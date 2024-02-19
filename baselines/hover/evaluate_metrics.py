@@ -44,7 +44,7 @@ def metrics(true_labels: List[int], pred_labels: List[int]) -> None:
         - pred_labels (List[int]): list containing predicted labels for the claims.
     """
     acc = accuracy_score(true_labels, pred_labels)
-    prec, rec, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average="weighted", zero_division=0)
+    prec, rec, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average="binary", zero_division=0)
     results = {"acc": acc, "f1": f1, "prec": prec, "rec": rec}
     results = {k: v*100 for k, v in results.items()}
     return results

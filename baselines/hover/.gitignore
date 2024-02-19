@@ -1,4 +1,6 @@
-data/*
+data/db_files/*
+data/embed_files/*
+data/enwiki_files/*
+data/hover_files/*
 out/*
-stanford-corenlp-4.5.5/*
 **/cache/

@@ -11,7 +11,8 @@ from scripts.monitor_utils import ProcessMonitor, format_size
 def sleep(seconds):
     if seconds: time.sleep(seconds)
 class BM25Search():
-    def __init__(self, index_name: str, 
+    def __init__(self, index_name: str,
+                 dataset_name: str, 
                  corpus: List[Dict],
                  hostname: str = "localhost",
                  keys: Dict[str, str] = {"title": "title", "body": "text"}, 
@@ -39,15 +40,15 @@ class BM25Search():
         # Index the corpus within elastic-search
         # False, if the corpus has been already indexed
         if self.initialize:
-            self.initialise(corpus)
+            self.initialise(corpus, dataset_name)
 
 
-    def initialise(self, corpus):
+    def initialise(self, corpus, dataset_name):
         self.es.delete_index()
         sleep(self.sleep_for)
         self.es.create_index()
 
-        with ProcessMonitor() as pm:
+        with ProcessMonitor(dataset=dataset_name) as pm:
             pm.start()
             self.index(corpus)
             # Sleep for few seconds so that elastic-search indexes the docs properly

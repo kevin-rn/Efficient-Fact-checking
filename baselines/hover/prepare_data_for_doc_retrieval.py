@@ -61,7 +61,7 @@ def main():
     with ProcessMonitor(dataset=args.dataset_name) as pm:
         pm.start()
         if args.db_name:
-            wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', f'wiki_wo_links-{args.db_name}.db'))
+            wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', args.db_name + '.db'))
         else:
             wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
@@ -81,7 +81,7 @@ def main():
 
         try:
             for e in tqdm(hover_data):
-                uid, num_hops, supporting_facts = e['uid'], e['num_hops'], e['supporting_facts']
+                uid, supporting_facts = e['uid'], e['supporting_facts']
                 retrieved_docs = uid_to_tfidf_retrieved_doc[uid]
                 golden_docs = []
                 for sp in supporting_facts:
@@ -105,18 +105,17 @@ def main():
                                                     (unicodedata.normalize('NFD', doc_title),)).fetchall()[0]
                     para_title, para_text = list(para)
 
-                    # New wiki db containing only claims
-                    if '[SENT]' in para_text:
+                    # Modified from the original HoVer setup as 
+                    # we store sentences with [SENT] identifier inbetween.
+                    if para_text.strip():
                         paragraph = para_text.split('[SENT]')
                         paragraph.insert(0, para_title)
                         context.append(paragraph)
-                    else:
-                        context.append(para)
 
-                    if doc_title in golden_docs:
-                        labels.append(1)
-                    else:
-                        labels.append(0)
+                        if doc_title in golden_docs:
+                            labels.append(1)
+                        else:
+                            labels.append(0)
 
                 e['context'] = context[:20]
                 e['labels'] = labels[:20]
@@ -127,10 +126,10 @@ def main():
 
         logging.info("Saving prepared data ...")
         if args.oracle:
-            with open(os.path.join(args.data_dir, 'doc_retrieval', args.dataset_name+'_'+args.data_split+'_doc_retrieval_oracle.json'), 'w', encoding="utf-8") as f:
+            with open(os.path.join(args.data_dir, 'doc_retrieval', 'hover_'+args.data_split+'_doc_retrieval_oracle.json'), 'w', encoding="utf-8") as f:
                 json.dump(hover_data_w_tfidf_docs, f)
         else:
-            with open(os.path.join(args.data_dir, 'doc_retrieval', args.dataset_name+'_'+args.data_split+'_doc_retrieval.json'), 'w', encoding="utf-8") as f:
+            with open(os.path.join(args.data_dir, 'doc_retrieval', 'hover_'+args.data_split+'_doc_retrieval.json'), 'w', encoding="utf-8") as f:
                 json.dump(hover_data_w_tfidf_docs, f)
 
 if __name__ == "__main__":

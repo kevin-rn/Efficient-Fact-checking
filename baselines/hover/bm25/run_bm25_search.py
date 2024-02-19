@@ -67,7 +67,7 @@ def get_queries(claim_path) -> Tuple[Dict[str, str], Any]:
       queries.update({claim['uid']: re.sub('\s+',' ', claim['claim'])})
    return queries, claim_json
 
-def search_and_retrieve(dataset_name, data_split: str, init_index: bool, batched: bool) -> None:
+def search_and_retrieve(dataset_name: str, data_split: str, init_index: bool, batched: bool) -> None:
    """
    Retrieves top-100 documents for a given claim using BM-25 (ElasticSearch).
 
@@ -75,7 +75,7 @@ def search_and_retrieve(dataset_name, data_split: str, init_index: bool, batched
       - data_split (str): Name of the datasplit to process for e.g. train or dev.
    """
    if args.db_name:
-      corpus_path = os.path.join("data", "db_files", f"wiki_wo_links-{args.db_name}.db")
+      corpus_path = os.path.join("data", "db_files", args.db_name+".db")
    else:
       corpus_path = os.path.join("data", "wiki_wo_links.db")
    query_path = os.path.join("data", dataset_name, f"{dataset_name}_{data_split}_release_v1.1.json")
@@ -86,11 +86,12 @@ def search_and_retrieve(dataset_name, data_split: str, init_index: bool, batched
    # Perform Indexing and retrieval
    batch_size = 32 if batched else 1
    bm25_search = BM25Search(index_name="hover", 
+                            dataset_name=dataset_name,
                             initialize=init_index, 
                             batch_size=batch_size, 
                             corpus=corpus)
-   with ProcessMonitor() as p:
-      p.start()
+   with ProcessMonitor(dataset=dataset_name) as pm:
+      pm.start()
       response = bm25_search.retrieve(queries, 100)
 
       # Save to file
@@ -119,7 +120,7 @@ def search_and_retrieve(dataset_name, data_split: str, init_index: bool, batched
                      "doc_retrieval_results": [[doc_list, prob_list], support]}
          bm25_doc_results.append(json_claim)
 
-      result_path = os.path.join("data", "hover", "bm25_retrieved", f"{data_split}_bm25_doc_retrieval_results.json")
+      result_path = os.path.join("data", dataset_name, "bm25_retrieved", f"{data_split}_bm25_doc_retrieval_results.json")
       with open(result_path, 'w', encoding="utf-8") as f:
          json.dump(bm25_doc_results, f)
 

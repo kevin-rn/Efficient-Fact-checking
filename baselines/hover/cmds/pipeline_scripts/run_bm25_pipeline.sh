@@ -21,8 +21,8 @@ python3 prepare_data_for_doc_retrieval.py --dataset_name=$claim_name --data_spli
 if [ "$bm25_type" = "original" ]
   then
     echo -e "\nSENTENCE RETRIEVAL\n"
-    python3 prepare_data_for_sent_retrieval.py --dataset_name=$claim_name --data_split=train --sent_retrieve_range=5 --db_name=$db_name
-    python3 prepare_data_for_sent_retrieval.py --dataset_name=$claim_name --data_split=dev --sent_retrieve_range=5 --db_name=$db_name
+    python3 prepare_data_for_sent_retrieval.py --data_split=train --sent_retrieve_range=5 --dataset_name=$claim_name --db_name=$db_name
+    python3 prepare_data_for_sent_retrieval.py --data_split=dev --sent_retrieve_range=5 --dataset_name=$claim_name --db_name=$db_name
     ./cmds/train_scripts/train_sent_retrieval.sh $claim_name
     ./cmds/eval_scripts/eval_sent_retrieval_on_train.sh $claim_name
     ./cmds/eval_scripts/eval_sent_retrieval_on_dev.sh $claim_name

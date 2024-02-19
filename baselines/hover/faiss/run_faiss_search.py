@@ -80,7 +80,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 if args.setting:
-    ENWIKI_DB = os.path.join("data", "db_files", f"wiki_wo_links-{args.setting}.db")  
+    ENWIKI_DB = os.path.join("data", "db_files", args.setting + ".db")  
 else:
     ENWIKI_DB = os.path.join("data", "wiki_wo_links.db")
 

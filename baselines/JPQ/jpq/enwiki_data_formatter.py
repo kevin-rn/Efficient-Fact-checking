@@ -1,3 +1,4 @@
+import argparse
 import bz2
 import csv
 import json
@@ -15,7 +16,26 @@ sys.path.append(sys.path[0] + "/../..".replace("/", os.path.sep))
 from scripts.text_processing_utils import remove_html_tags, tqdm_joblib, search_file_paths
 csv.field_size_limit(sys.maxsize)
 
-HOVER_PATH = os.path.join("..", "hover")
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--dataset_name",
+    default=None,
+    type=str,
+    required=True,
+    help="[hover | wice]",
+)
+
+parser.add_argument(
+    "--enwiki_name",
+    default=None,
+    type=str,
+    required=True,
+    help="[enwiki-2017-original | enwiki-2023-cite]",
+)
+args = parser.parse_args()
+
+
+HOVER_PATH = os.path.join("..", "hover", "data")
 JPQ_PATH = os.path.join("data", "doc", "enwiki-dataset")
 if not os.path.exists(JPQ_PATH):
     os.makedirs(JPQ_PATH, exist_ok=True)
@@ -49,7 +69,7 @@ def format_docs_data() -> Tuple[Dict, List] :
     Returns:
         Tuple[Dict, List]: A tuple containing lookup dictionary and document IDs.
     """
-    doc_loc = os.path.join(HOVER_PATH, "data", "enwiki_files", "enwiki-2017-original")
+    doc_loc = os.path.join(HOVER_PATH, "enwiki_files", args.enwiki_name)
     tsv_loc = os.path.join(JPQ_PATH, "enwiki-docs.tsv")
 
     file_paths = search_file_paths(doc_loc)
@@ -76,7 +96,7 @@ def format_queries_data(lookup_dict, doc_ids) -> None:
         doc_ids (List): List of document IDs.
     """
     last_id = 0
-    hover_data_path = os.path.join(HOVER_PATH, "data", "hover")
+    hover_data_path = os.path.join(HOVER_PATH, args.dataset_name)
     with open(os.path.join(hover_data_path, "hover_train_release_v1.1.json"), 'r') as json_file:
         claim_json = json.load(json_file)
         train_claims = [(claim_id, re.sub('\s+',' ', claim['claim']), claim['supporting_facts']) for claim_id, claim in enumerate(claim_json)]

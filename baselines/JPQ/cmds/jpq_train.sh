@@ -2,9 +2,17 @@
 set -e
 
 eval "$(conda shell.bash hook)"
+
+claim_name=$1
+setting=$2
+subvectors=$3
+
 conda activate grounding
 
-subvectors=$1
+echo -e "Format data\n"
+python -m jpq.enwiki_data_formatter \
+  --dataset_name $claim_name \
+  --enwiki_name $setting
 
 echo -e "Preprocess data\n"
 python -m jpq.preprocess \
@@ -31,7 +39,24 @@ python -m jpq.run_train \
     --centroid_lr 1e-4 \
     --train_batch_size 32
 
-echo -e "\nConvert encoders to JPQTower"
+mkdir data/passage/init/m96
+mv data/doc/init/OPQ96,IVF1,PQ96x8.index ata/passage/init/m96
+mv data/doc/init/doc_embed.memmap
+
+echo -e "\nConvert encoders to JPQTower\n"
 python -m jpq.convert_model \
-    --data_type 0\
-    --subectors=$subectors
+    --data_type 0 \
+    --subvector_num=$subvectors
+
+echo -e "\nRun Inference\n"
+python -m run_inference.py \
+  --dataset_name \
+  --data_split train \
+  --subvectors_num $subvectors \
+  --batch_size 128
+
+python -m run_inference.py \
+  --dataset_name \
+  --data_split dev \
+  --subvectors_num $subvectors \
+  --batch_size 1
