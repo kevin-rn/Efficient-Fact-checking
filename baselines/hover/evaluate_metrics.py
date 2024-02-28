@@ -44,8 +44,10 @@ def metrics(true_labels: List[int], pred_labels: List[int]) -> None:
         - pred_labels (List[int]): list containing predicted labels for the claims.
     """
     acc = accuracy_score(true_labels, pred_labels)
-    prec, rec, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average="binary", zero_division=0)
-    results = {"acc": acc, "f1": f1, "prec": prec, "rec": rec}
+    prec_weighted, rec_weighted, f1_weighted, _ = precision_recall_fscore_support(true_labels, pred_labels, average="weighted", zero_division=0)
+    prec_macro, rec_macro, f1_macro, _ = precision_recall_fscore_support(true_labels, pred_labels, average="macro", zero_division=0)
+    results = {"acc": acc, "f1_weighted": f1_weighted, "f1_macro": f1_macro, "prec_weighted": prec_weighted, "prec_macro": prec_macro,
+                "rec_weighted": rec_weighted, "rec_macro": rec_macro}
     results = {k: v*100 for k, v in results.items()}
     return results
 
@@ -56,22 +58,41 @@ def main():
         default='hover',
         type=str
     )
+
+    parser.add_argument(
+        "--out_dir",
+        default='exp1.0',
+        type=str
+    )
+
+    parser.add_argument(
+        "--verbose",
+        action='store_true',
+        help="Print metrics for all checkpoints"
+    )
     args = parser.parse_args()
 
-    checkpoints = [str(num) for num in range(100, 3100, 100)]
+    claim_prediction_dir = os.path.join("out", args.dataset_name, args.out_dir, "claim_verification")
+    checkpoints = [x[0] for x in os.walk(claim_prediction_dir) if "checkpoint" in x[0]]
     labels = os.path.join("data", args.dataset_name, f"{args.dataset_name}_dev_release_v1.1.json")
-
+    
     results = []
     for check in checkpoints:
-        predict = os.path.join("out", args.dataset_name, "exp1.0", "claim_verification", 'checkpoint-'+ check, "dev_predictions_.json")
+        predict = os.path.join(check, "dev_predictions_.json")
+        checkpoint_name = check.split(os.path.sep)[-1]
         true_labels, pred_labels = read_data(predict_file=predict, label_file=labels)
-        check_result = metrics(true_labels=true_labels, pred_labels=pred_labels)
-        # print(f'Checkpoint-{check}' ,',    '.join([f'{k}: {v:.2f}%' for k,v in check_result.items()]))
-        results.append(check_result)
+        check_results = metrics(true_labels=true_labels, pred_labels=pred_labels)
+        results.append(check_results)
+        if args.verbose:
+            print(checkpoint_name,',\t'.join([f'{k}: {v:.2f}%' for k,v in check_results.items()]))
 
-    high_score = max(results, key=lambda x: x['acc'])
-    checkpoint = checkpoints[results.index(high_score)]
-    print(f'\nCheckpoint-{checkpoint}' ,',    '.join([f'{k}: {v:.2f}%' for k,v in high_score.items()]))
+    if results:
+        key_metric = 'acc' if args.dataset_name == "hover" else 'f1_weighted'
+        high_score = max(results, key=lambda x: x[key_metric])
+        checkpoint = checkpoints[results.index(high_score)]
+        print(f'\n{checkpoint.split(os.path.sep)[-1]}' ,',    '.join([f'{k}: {v:.2f}%' for k,v in high_score.items()]))
+    else:
+        print("No checkpoint found")
 
 if __name__ == "__main__":
     main()

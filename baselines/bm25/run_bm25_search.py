@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 import sys
 
-sys.path.append(sys.path[0] + '/../..')
+sys.path.append(sys.path[0] + os.path.sep + '..')
 from scripts.monitor_utils import ProcessMonitor
 
 parser = ArgumentParser()
@@ -20,7 +20,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--db_name",
+    "--setting",
     type=str,
     default=None,
     help="Name of the database files"
@@ -74,11 +74,11 @@ def search_and_retrieve(dataset_name: str, data_split: str, init_index: bool, ba
    Parameters:
       - data_split (str): Name of the datasplit to process for e.g. train or dev.
    """
-   if args.db_name:
-      corpus_path = os.path.join("data", "db_files", args.db_name+".db")
+   if args.setting:
+      corpus_path = os.path.join("hover", "data", "db_files", args.setting+".db")
    else:
-      corpus_path = os.path.join("data", "wiki_wo_links.db")
-   query_path = os.path.join("data", dataset_name, f"{dataset_name}_{data_split}_release_v1.1.json")
+      corpus_path = os.path.join("hover", "data", "wiki_wo_links.db")
+   query_path = os.path.join("hover", "data", dataset_name, f"{dataset_name}_{data_split}_release_v1.1.json")
    queries, claim_list = get_queries(query_path)
    corpus = get_corpus(corpus_path)
    
@@ -120,7 +120,7 @@ def search_and_retrieve(dataset_name: str, data_split: str, init_index: bool, ba
                      "doc_retrieval_results": [[doc_list, prob_list], support]}
          bm25_doc_results.append(json_claim)
 
-      result_path = os.path.join("data", dataset_name, "bm25_retrieved", f"{data_split}_bm25_doc_retrieval_results.json")
+      result_path = os.path.join("hover", "data", dataset_name, "bm25_retrieved", f"{data_split}_bm25_doc_retrieval_results.json")
       with open(result_path, 'w', encoding="utf-8") as f:
          json.dump(bm25_doc_results, f)
 

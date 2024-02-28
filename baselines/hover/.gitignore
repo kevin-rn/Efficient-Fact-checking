@@ -2,5 +2,7 @@ data/db_files/*
 data/embed_files/*
 data/enwiki_files/*
 data/hover_files/*
+faiss/indices/*
 out/*
+stanford-corenlp-4.5.5/*
 **/cache/

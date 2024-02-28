@@ -172,7 +172,7 @@ class JPQDualEncoder:
 
 class DenseRetrievalJPQSearch:
     
-    def __init__(self, dataset_name, model, subvectors_num: int, batch_size: int = 128, corpus_index: faiss.Index = None, **kwargs):
+    def __init__(self, dataset_name, model, subvectors_num: int, batch_size: int = 128, use_gpu: bool= True, corpus_index: faiss.Index = None, **kwargs):
         self.dataset_name = dataset_name
         #model is class that provides encode_corpus() and encode_queries()
         self.model = model
@@ -185,7 +185,7 @@ class DenseRetrievalJPQSearch:
         # self.corpus_chunk_size = corpus_chunk_size 
         self.show_progress_bar = True #TODO: implement no progress bar if false
         # self.convert_to_tensor = True : Faiss uses numpy
-
+        self.use_gpu = use_gpu
         # so we can reuse stored faiss index
         # and do not have to encode the corpus again
         self.corpus_index = corpus_index
@@ -198,25 +198,24 @@ class DenseRetrievalJPQSearch:
                 **kwargs) -> None:
         if score_function not in self.score_functions:
             raise ValueError("score function: {} must be either (dot) for dot product".format(score_function))
-        if os.path.isfile(index_path):
-            self.corpus_index = faiss.read_index(index_path)
-        else:
-            logger.info("Sorting Corpus by document length (Longest first)...")
-            corpus_ids = sorted(corpus, key=lambda k: len(corpus[k].get("title", "") + corpus[k].get("text", "")), reverse=True)
-            corpus = [corpus[cid] for cid in corpus_ids]
 
-            logger.info("Encoding Corpus in batches... Warning: This might take a while!")
-            logger.info("Scoring Function: {} ({})".format(self.score_function_desc[score_function], score_function))
+        logger.info("Sorting Corpus by document length (Longest first)...")
+        corpus_ids = sorted(corpus, key=lambda k: len(corpus[k].get("title", "") + corpus[k].get("text", "")), reverse=True)
+        corpus = [corpus[cid] for cid in corpus_ids]
 
-            self.corpus_index = self.model.encode_corpus(
-                corpus, batch_size=self.batch_size,
-                faiss_metric=self.score_functions[score_function],
-                show_progress_bar=self.show_progress_bar,
-                **kwargs
-            )
+        logger.info("Encoding Corpus in batches... Warning: This might take a while!")
+        logger.info("Scoring Function: {} ({})".format(self.score_function_desc[score_function], score_function))
+
+        self.corpus_index = self.model.encode_corpus(
+            corpus, batch_size=self.batch_size,
+            faiss_metric=self.score_functions[score_function],
+            show_progress_bar=self.show_progress_bar,
+            **kwargs
+        )
+        if self.use_gpu:
             flat_index = faiss.index_gpu_to_cpu(self.corpus_index)
-            faiss.write_index(flat_index, )
-            logger.info("Saved Index")
+        faiss.write_index(flat_index, index_path)
+        logger.info("Saved Index")
 
     def search(self, 
                corpus: Dict[str, Dict[str, str]], 
@@ -259,14 +258,14 @@ class DenseRetrievalJPQSearch:
             logger.warning("Skip the corpus encoding process and utilize pre-computed corpus_index")
         
         # keep self.corpus_index on cpu
-        if faiss.get_num_gpus() >= 1:
+        if self.use_gpu and faiss.get_num_gpus() >= 1:
             logger.info("Transfering index to GPU-0")
             res = faiss.StandardGpuResources()
             co = faiss.GpuClonerOptions()
             # co.useFloat16 = faiss.downcast_index(self.corpus_index).pq.M >= 56
             co.useFloat16 = self.subvectors_num >= 56
             corpus_index = faiss.index_cpu_to_gpu(res, 0, self.corpus_index, co)
-        elif faiss.get_num_gpus() > 1:
+        elif self.use_gpu and faiss.get_num_gpus() > 1:
             logger.info("Transfering index to multiple GPUs")
             co = faiss.GpuMultipleClonerOptions()
             # co.useFloat16 = faiss.downcast_index(self.corpus_index).pq.M >= 56

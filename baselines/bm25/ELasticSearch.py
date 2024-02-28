@@ -2,8 +2,6 @@ from elasticsearch import Elasticsearch
 from elasticsearch.helpers import streaming_bulk
 from typing import Dict, List, Tuple
 import logging
-import tqdm
-import sys
 
 tracer = logging.getLogger('elasticsearch') 
 tracer.setLevel(logging.CRITICAL) # supressing INFO messages for elastic-search

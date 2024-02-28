@@ -62,19 +62,17 @@ def hover_convert_example_to_features(example, max_seq_length, max_doc_num, max_
     all_input_ids, all_attention_masks, all_token_type_ids, all_tokens = [], [], [], []
     for all_doc_tokens in all_docs_tokens:
         span_doc_tokens = all_doc_tokens
-        try:
-            encoded_dict = tokenizer.encode_plus(
-                truncated_claim if tokenizer.padding_side == "right" else span_doc_tokens,
-                span_doc_tokens if tokenizer.padding_side == "right" else truncated_claim,
-                max_length=max_seq_length,
-                return_overflowing_tokens=True,
-                pad_to_max_length=True,
-                stride=max_seq_length - doc_stride - len(truncated_claim) - sequence_pair_added_tokens,
-                truncation_strategy="only_second",
-                return_token_type_ids=True,
-            )
-        except:
-            continue
+
+        encoded_dict = tokenizer.encode_plus(
+            truncated_claim if tokenizer.padding_side == "right" else span_doc_tokens,
+            span_doc_tokens if tokenizer.padding_side == "right" else truncated_claim,
+            max_length=max_seq_length,
+            return_overflowing_tokens=True,
+            pad_to_max_length=True,
+            stride=max_seq_length - doc_stride - len(truncated_claim) - sequence_pair_added_tokens,
+            truncation_strategy="only_second",
+            return_token_type_ids=True,
+        )
 
         paragraph_len = min(
             len(all_doc_tokens) - len(spans) * doc_stride,

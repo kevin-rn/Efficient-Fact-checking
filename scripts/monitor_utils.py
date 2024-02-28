@@ -45,7 +45,7 @@ def format_size(total_size: int) -> str:
     Returns:
         The formatted size string.
     """
-    if total_size == 0:
+    if total_size <= 0:
         return "0.0 B"
     i = int(math.floor(math.log(total_size, 1024)))
     p = math.pow(1024, i)
@@ -77,7 +77,7 @@ class ProcessMonitor(Thread):
     """
     Monitor the performance of a function, including elapsed time, data, output size, and memory usage.
     """
-    def __init__(self, dataset, *args, **kwargs):
+    def __init__(self, dataset=None, *args, **kwargs):
         """
         Initialises Thread class.
         """
@@ -88,15 +88,15 @@ class ProcessMonitor(Thread):
         self.mem_usage = []
         self.GPU = [{"util": [], "mem": []}, 
                     {"util": [], "mem": []}]
-        
+        self.measure_dataset = dataset
         # Path to directories
         root = Path(__file__).parent.parent
-        self.data_path = os.path.join(root, "baselines", "hover", "data", dataset)
-        self.out_path = os.path.join(root, "baselines", "hover", "out", dataset, "exp1.0")
-
-        # Measure before running function
-        self.data_before = get_dir_size(dir_path=self.data_path)
-        self.out_before = get_dir_size(dir_path=self.out_path)
+        if self.measure_dataset:
+            self.data_path = os.path.join(root, "baselines", "hover", "data", dataset)
+            self.out_path = os.path.join(root, "baselines", "hover", "out", dataset, "exp1.0")
+            # Measure before running function
+            self.data_before = get_dir_size(dir_path=self.data_path)
+            self.out_before = get_dir_size(dir_path=self.out_path)
         self.start_time = time.perf_counter()
         # Setup GPU monitoring before running
         nvidia_smi.nvmlInit()
@@ -143,8 +143,9 @@ class ProcessMonitor(Thread):
         """
         self.running = False
         end_time = time.perf_counter()
-        data_after = get_dir_size(self.data_path)
-        out_after = get_dir_size(self.out_path)
+        if self.measure_dataset:
+            data_after = get_dir_size(self.data_path)
+            out_after = get_dir_size(self.out_path)
 
         # Substract the before measurement to avoid overlapping processes being measured.
         total_time = end_time - self.start_time
@@ -152,12 +153,14 @@ class ProcessMonitor(Thread):
         mem = max(self.mem_usage, default=0) - min(self.mem_usage, default=0)
 
         # Sleep few seconds for files to finish processing
-        time.sleep(2)
-        total_data_folder = data_after - self.data_before
-        total_output_folder = out_after - self.out_before
+        if self.measure_dataset:
+            time.sleep(2)
+            total_data_folder = data_after - self.data_before
+            total_output_folder = out_after - self.out_before
 
         print(f"Elapsed time: {format_time(total_time)}")
-        print(f"HoVer datasplit: {format_size(total_data_folder)}, model data: {format_size(total_output_folder)}")
+        if self.measure_dataset:
+            print(f"HoVer datasplit: {format_size(total_data_folder)}, model data: {format_size(total_output_folder)}")
         print(f"CPU : {cpu:.1f}%")
         print(f"RAM : {format_size(mem)}")
         self.print_gpu_stats()

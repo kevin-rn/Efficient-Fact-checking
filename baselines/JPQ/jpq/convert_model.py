@@ -46,12 +46,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_type", type=int, required=True)
     parser.add_argument("--subvector_num", type=int, required=True)
+    parser.add_argument("--enwiki_name", default=None, type=str, required=True)
     args = parser.parse_args()
 
     data_type = "doc" if args.data_type == 0 else "passage"
     m = args.subvector_num
     index_name = f"OPQ{m},IVF1,PQ{m}x8.index"
-    jpq_path = (f"data/{data_type}/eval/m{m}/doc_encoder", f"data/{data_type}/eval/m{m}/query_encoder")
+    jpq_path = (f"data/{data_type}/eval/{args.enwiki_name}/m{m}/doc_encoder", f"data/{data_type}/eval/{args.enwiki_name}/m{m}/query_encoder")
 
     # Create directories
     os.makedirs(jpq_path[0], exist_ok=True)

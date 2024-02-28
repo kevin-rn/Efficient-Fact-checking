@@ -14,6 +14,7 @@ import unicodedata
 from text_processing_utils import search_file_paths, remove_html_tags, tqdm_joblib
 from joblib import Parallel, delayed
 from sentence_transformers import SentenceTransformer
+from monitor_utils import ProcessMonitor
 
 ### Argument parsing
 ### E.g. python data_processing.py --setting=cite --split_sent --first_para_only --pre_compute_embed
@@ -38,9 +39,9 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--pre_compute_embed",
+    "--store_original",
     action='store_true',
-    help="Pre-compute embeddings for a setting"
+    help="Use original text instead of just the supporting facts"
 )
 
 args = parser.parse_args()
@@ -55,7 +56,7 @@ FILENAME = args.setting + is_full + sent_split
 DB_PATH = os.path.join(BASE_PATH, "db_files", f"{FILENAME}.db")
 
 ### MODEL ###
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 encoder = SentenceTransformer(
     "sentence-transformers/all-MiniLM-L6-v2", device=device
 )
@@ -98,7 +99,7 @@ def construct_db_file(db_args: dict) -> None:
     Columns are (id, text, embed) with embed else  (id, text)
     """
     file_paths = search_file_paths(db_args['path_location'])
-    with tqdm_joblib(tqdm(desc="Process for jpq", total=len(file_paths))) as progress_bar:
+    with tqdm_joblib(tqdm(desc=f"Construct {args.setting} database", total=len(file_paths))) as progress_bar:
         results = Parallel(n_jobs=16)(
             delayed(read_bz2_file)(bz2_filepath, db_args) for bz2_filepath in file_paths
         )
@@ -120,6 +121,7 @@ def construct_db_file(db_args: dict) -> None:
     cursor.execute("VACUUM;")
     conn.commit()
     conn.close()
+    print(f"Finished {FILENAME} database")
 
 def pre_compute_embed() -> None:
     """
@@ -143,12 +145,14 @@ def pre_compute_embed() -> None:
 
     # Encode document text and store them to h5 file.
     embed_path = os.path.join(EMBED_FOLDER, FILENAME+".h5")
-    with torch.no_grad():
+    with torch.no_grad(), ProcessMonitor() as pm:
+        pm.start()
         for idx, doc_text in enumerate(documents):
             embed_arr = encoder.encode(doc_text, batch_size=128, show_progress_bar=True, convert_to_numpy=True)
             with h5py.File(embed_path, 'a') as hf:
                 hf.create_dataset(f"group_{idx}",  data=embed_arr)
             del embed_arr
+    print(f"Finished {FILENAME} pre-computed embeddings")
 
 def get_raw_size() -> None:
     """
@@ -180,71 +184,25 @@ def get_raw_size() -> None:
 
     # Measure size.
     size = os.path.getsize(raw_file)
-    print(f"Corpus size: {format_size(size)}, {total_sents} sentences")
+    print(f"{FILENAME} Corpus size: {format_size(size)}, {total_sents} sentences")
 
     # Cleanup
     os.remove(raw_file)
 
-def cite_fusion():
-    """
-    Adds claim detected sentences into the cited sentences corpus
-    """
-    cite_path = os.path.join(BASE_PATH, "db_files", f"wiki_wo_links-cite{is_full}.db")
-    conn = sqlite3.connect(cite_path)
-    wiki_db = conn.cursor()
-    docs = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
-    conn.close()
-
-    claim_path = os.path.join(BASE_PATH, "db_files", f"wiki_wo_links-claim{is_full}.db")
-    conn = sqlite3.connect(claim_path)
-    wiki_db = conn.cursor()
-    titles, cited_texts, claim_texts = [], [], []
-    for title, cite_text in tqdm(docs):
-        claim_text = wiki_db.execute("SELECT text FROM documents WHERE id = ?", 
-                                              (title,)).fetchone()[0]
-        titles.append(title)
-        claim_texts.append(claim_text)
-        cited_texts.append(cite_text)
-    conn.close()
-
-    fusion_path = os.path.join(BASE_PATH, "db_files", f"wiki_wo_links-fusion{is_full}.db")
-    conn = sqlite3.connect(fusion_path)
-    wiki_db = conn.cursor()
-    wiki_db.execute("""
-                    CREATE TABLE IF NOT EXISTS documents (
-                        id TEXT PRIMARY KEY,
-                        text TEXT
-                    )
-                    """)
-    count = 0
-    wiki_values = []
-    for title, cite_text, claim_text in zip(titles, cited_texts, claim_texts):
-        # Add claim detected sentence if there are any and if it doesn't contain any citations yet.
-        if not cite_text.strip() and claim_text.strip():
-            wiki_values.append((title, claim_text))
-            count += 1
-        else:
-            wiki_values.append((title, cite_text))
-    wiki_db.executemany("INSERT OR IGNORE INTO documents (id, text) VALUES (?, ?)", wiki_values)
-    conn.commit()
-
-    wiki_db.execute("VACUUM;")
-    conn.commit()
-    conn.close()
-    print(f"Total length: {len(titles)}, count original: {count}")
-
 def main():
-    if FILENAME in ["fusion-first", "fusion-full"]:
-        cite_fusion()
+    db_args = {"path_location": os.path.join(ENWIKI_FOLDER, args.setting),
+        "text": "text" if args.store_original else "fact_text",
+        "split_sent": args.split_sent,
+        "first_only": args.first_para_only}
+    if os.path.isfile(DB_PATH):
+        print("DB file already exists")
     else:
-        db_args = {"path_location": os.path.join(ENWIKI_FOLDER, args.setting),
-            "text": "text" if "original" in args.setting else "fact_text",
-            "split_sent": args.split_sent,
-            "first_only":args.first_para_only}
         construct_db_file(db_args)
 
-    if args.pre_compute_embed:
-        pre_compute_embed()
+    # Pre-computes vector embeddings for Faiss Retrieval setup
+    # pre_compute_embed()
+
+    # Calculates Raw corpus size
     get_raw_size()
 
 if __name__ == "__main__":

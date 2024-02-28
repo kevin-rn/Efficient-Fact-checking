@@ -70,20 +70,20 @@ def save_file_to_path(json_list: List[Any], dir: str, filepath: str) -> None:
             bz2_f.write(json_data.encode("utf-8"))
             bz2_f.write(b"\n")
 
-def multiprocess_bz2(func: Any, start_location: str, end_location: str, n_processes: int=16, process_style=None) -> Any:
+def multiprocess_bz2(func: Any, first_loc: str, second_loc: str, third_loc: str = None, n_processes: int=16, process_style=None) -> Any:
     """
     Performs multiprocessing for a given function and its filepaths.
     """
     # Get all filepaths to still process for.
-    file_paths = search_file_paths(start_location)
-    exclude_paths = search_file_paths(end_location)
+    file_paths = search_file_paths(first_loc)
+    exclude_paths = search_file_paths(third_loc) if third_loc else search_file_paths(second_loc)
     search_paths = list(set(file_paths).symmetric_difference(set(exclude_paths)))
     print(f"total files: {len(file_paths)}, pending: {len(search_paths)}")
 
     # Start Multiprocessing using joblib.
     with tqdm_joblib(tqdm(desc="Process bz2 file", total=len(search_paths))) as progress_bar:
         results = Parallel(n_jobs=n_processes, prefer=process_style)(
-            delayed(func)(bz2_filepath, start_location, end_location) for bz2_filepath in search_paths
+            delayed(func)(bz2_filepath, first_loc, second_loc) for bz2_filepath in search_paths
         )
 
     return results

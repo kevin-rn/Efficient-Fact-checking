@@ -18,19 +18,20 @@ import torch
 from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers import SentenceTransformer
 from setfit import SetFitModel
+from requests.exceptions import ChunkedEncodingError, ConnectionError, RequestException
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 
 parser = ArgumentParser()
 parser.add_argument(
-    "--start_loc",
+    "--first_loc",
     type=str,
     required=True,
     help="Name of the corresponding setting to retrieve documents from e.g. enwiki-2017-cite, enwiki-2023-wice"
 )
 
 parser.add_argument(
-    "--end_loc",
+    "--second_loc",
     type=str,
     required=True,
     help="Name of the corresponding setting to store documents for e.g. enwiki-2017-cite, enwiki-2023-wice"
@@ -40,7 +41,7 @@ parser.add_argument(
     "--process_function",
     type=str,
     required=True,
-    help="[claimbuster | wice | cite | preprocess]"
+    help="[preprocess | claim_detect | wice | cite | fusion ]"
 )
 parser.add_argument(
     "--first_paragraph_only",
@@ -59,17 +60,19 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
-cite_pattern = re.compile("\[\d+\]|\[nb\s*\d+\]")   # Citation pattern e.g. [1] or [nb]
+
+# Citation pattern e.g. [1] or [nb]
+cite_pattern = re.compile("\[\d+\]|\[nb\s*\d+\]")
 
 ### DATA ###
 BASE_PATH = os.path.join("..", "baselines", "hover", "data", "enwiki_files")
-START_ENWIKI = os.path.join(BASE_PATH, args.start_loc)
-END_ENWIKI = os.path.join(BASE_PATH, args.end_loc)
+FIRST_ENWIKI = os.path.join(BASE_PATH, args.first_loc)
+SECOND_ENWIKI = os.path.join(BASE_PATH, args.second_loc)
 
 ### MODEL ###
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 match args.process_function: 
-    case "claimbuster":
+    case "claim_detect":
         claim_tokenizer = AutoTokenizer.from_pretrained("Nithiwat/bert-base_claimbuster")
         claim_model = AutoModelForSequenceClassification.from_pretrained(
             "Nithiwat/bert-base_claimbuster"
@@ -84,14 +87,19 @@ match args.process_function:
     case "cite" | "preprocess":
         if args.use_spacy:
             import spacy
-            spacy.prefer_gpu() # alternatively use: spacy.require_gpu()
+            spacy.prefer_gpu(gpu_id=1) # alternatively use: spacy.require_gpu()
             nlp = spacy.load("en_core_web_lg", disable=['tagger', 'parser', 'ner', 'lemmatizer'])
             nlp.add_pipe('sentencizer')
+            print("Using Spacy")
         else:
             import sys
             sys.path.append(sys.path[0] + '/..')
             from baselines.hover.StanfordNLP import StanfordNLP
-            corenlp = StanfordNLP()
+            corenlp = StanfordNLP(port=9000)
+            print("Using StanfordNLP")
+    case "fusion":
+        fusion_dir = re.sub(r'(enwiki-\d+).*', r'\1', args.first_loc) + "-fusion"
+        FUSION_ENWIKI = os.path.join(BASE_PATH, fusion_dir)
 
 def preprocess_enwiki(filepath: str, start_loc: str, end_loc: str) -> None:
     """
@@ -124,7 +132,6 @@ def preprocess_enwiki(filepath: str, start_loc: str, end_loc: str) -> None:
             json_obj.append(wiki_article)
 
     save_file_to_path(json_list=json_obj, dir=end_loc, filepath=filepath)
-
 
 def claimbuster_enwiki(filepath: str, start_loc: str, end_loc: str) -> None:
     """
@@ -221,8 +228,6 @@ def wice_enwiki(filepath: str, start_loc: str, end_loc: str) -> None:
             json_obj.append(wiki_article)
     save_file_to_path(json_list=json_obj, dir=end_loc, filepath=filepath)
 
-
-
 def citation_enwiki(filepath: str, start_loc: str, end_loc: str) -> None:
     """
     Extracting citations for each wiki article in a bz2 file.
@@ -238,117 +243,151 @@ def citation_enwiki(filepath: str, start_loc: str, end_loc: str) -> None:
             wiki_article = json.loads(line)
             wiki_text = wiki_article['text']
             wiki_url = wiki_article['url']
-            hasRetrieved = False
+            wiki_article['hasRetrieved'] = False
             
-            # retry to retrieve html page for 3 times
             for _ in range(3):
                 try:
                     raw_page = requests.get(url=wiki_url)
-                    hasRetrieved = True
+                    wiki_article['hasRetrieved'] = True
                     break # stop retry loop once succesfull
-                except requests.exceptions.ChunkedEncodingError:
+                except ChunkedEncodingError:
                     time.sleep(1)
-                except requests.exceptions.ConnectionError:
+                except (ConnectionError, RequestException) :
                     print("Connection refused for ", wiki_url)
                     exit()
 
-            if hasRetrieved:
+            if not wiki_article['hasRetrieved']:
+                wiki_article['fact_text'] = [wiki_text[0], []]
+            else:
                 soup = BeautifulSoup(raw_page.text, 'lxml')
                 # used only when extracting just the first paragraph
                 cite_texts, parent_paras = [], []
-                parent_tags = soup.find_all('p', class_=None)
-
+                parent_tags = soup.find_all(['p', 'ul'], class_=None)
                 for parent_tag in parent_tags:
+                    # Store Parent sentences per paragraph sub-list
                     parent_text = cite_pattern.sub('', unicodedata.normalize('NFD', parent_tag.get_text()).strip())
+                    if not parent_text:
+                        continue
+
                     if args.use_spacy:
-                        parent_paras.append([sent.text.strip() for sent in nlp(parent_text).sents])
+                        parent_sents = [sent for p_sent in nlp(parent_text).sents for sent in p_sent.text.strip().split("\n")]
+                        parent_paras.append(parent_sents)
                     else:
+                        corenlp_sents = []
                         para_parse = corenlp.annotate(parent_text)
                         for sent_parse in para_parse['sentences']:
                             start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
-                            end_idx = sent_parse['tokens'][-1]['characterOffsetEnd']
-                            sent = parent_text[start_idx:end_idx]
-                            parent_paras.append(sent)
+                            end_idx = sent_parse['tokens'][-1]['characterOffsetEnd'] 
+                            corenlp_sents.extend(parent_text[start_idx:end_idx].strip().split("\n"))
+                        parent_paras.append(corenlp_sents)
 
-                    # Find all citation tags in paragraph
+                    # Find all citation tags in paragraph and extract text up to each citation tag.
                     cite_tags = parent_tag.find_all('sup', {'class': 'reference'})
                     for cite_tag in cite_tags:
-                        # extract text up until the citation
                         cite_text = cite_tag.get_text()
                         if cite_text:
-                            citated_text = parent_text.split(cite_text)
-
-                            # Multiple citations can occur in a paragraph so concatenate previous parts
+                            citated_text = parent_tag.get_text().split(cite_text)[:-1]
                             cited = ''
-                            for c in citated_text[:-1]:
+                            # Multiple citations can occur in a paragraph (or sentence) so concatenate previous parts
+                            for c in citated_text:
                                 cited += c
-                                # Remove citation numbers e.g. [1] [nb] from the text
-                                cleaned_text = cite_pattern.sub('', unicodedata.normalize('NFD', cited)).strip()
-                                cite_texts.append(cleaned_text)
+                                cleaned_text = cite_pattern.sub('', unicodedata.normalize('NFD', cited.split("\n")[-1])).strip()
+                                if cleaned_text and cleaned_text not in cite_texts:
+                                    cite_texts.append(cleaned_text)
 
                 # Get actual last sentence and remove non-duplicates (exact match and sub-strings)
                 if args.use_spacy:
                     docs = nlp.pipe(cite_texts, batch_size=128, n_process=1)
+                    sentences = [list(doc.sents)[-1].text for doc in docs if list(doc.sents)]
+                    non_dupes = list(dict.fromkeys(sentences))
                 else:
-                    docs = []
+                    non_dupes = []
                     for para_text in cite_texts:
                         para_parse = corenlp.annotate(para_text)
-                        para_sents = []
-                        for sent_parse in para_parse['sentences']:
-                            start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
-                            end_idx = sent_parse['tokens'][-1]['characterOffsetEnd']
-                            sent = para_text[start_idx:end_idx]
-                            para_sents.append(sent)
-                        docs.append(para_sents)
-                sentences = [list(doc.sents)[-1].text for doc in docs if list(doc.sents)]
-                non_dupes = list(dict.fromkeys(sentences))
+                        sent_parse = para_parse['sentences'][-1]
+                        start_idx = sent_parse['tokens'][0]['characterOffsetBegin']
+                        sent = para_text[start_idx:]
+                        if sent not in non_dupes:
+                            non_dupes.append(sent)
                 filtered_sentences = [sent for sent in non_dupes if not any(sent in other_sent for other_sent in non_dupes if sent != other_sent)]
 
-                # [[title], [citation sentences], [citation sentences], ...]
+                # Get the full sentence (possibly sentence cut-off due to citation in middle of sentence).
                 results = [wiki_text[0]]
                 for paragraph in parent_paras:
                     para_sents = [p_sent for c_sent in filtered_sentences for p_sent in paragraph if c_sent in p_sent]
-                    results.append(para_sents)
-                wiki_article['fact_text'] = results 
-            else:
-                # [[title], []]
-                wiki_article['fact_text'] = [wiki_text[0], []] 
-            wiki_article['hasRetrieved'] = hasRetrieved
+                    if para_sents:
+                        results.append(para_sents)
+                wiki_article['fact_text'] = results if len(results) >= 2 else [wiki_text[0], []]
             json_obj.append(wiki_article)
 
     save_file_to_path(json_list=json_obj, dir=end_loc, filepath=filepath)
 
+def fusion_enwiki(filepath: str, first_loc: str, second_loc: str):
+    """
+    Adds claim detected sentences into the cited sentences corpus
+    """
+    json_obj = []
+    with (
+        bz2.open(first_loc + filepath, "rt") as file_1,
+        bz2.open(second_loc + filepath, "rt") as file_2,
+    ):
+        for line_1, line_2 in zip(file_1, file_2):
+            wiki_article_1 = json.loads(line_1)
+            paragraphs_1 = remove_html_tags(list(chain.from_iterable(wiki_article_1['fact_text'][1:])))
+            wiki_text_1 = " ".join([sent.strip() for sent in paragraphs_1 if sent.strip()])
+
+            wiki_article_2 = json.loads(line_2)
+            paragraphs_1 = remove_html_tags(list(chain.from_iterable(wiki_article_2['fact_text'][1:])))
+            wiki_text_2 = " ".join([sent.strip() for sent in paragraphs_1 if sent.strip()])
+
+            # Check if first location has fact text otherwise use second location to fill in.
+            if not wiki_text_1.strip() and wiki_text_2.strip():
+                wiki_article_1['fact_text'] = wiki_article_2['fact_text']
+            json_obj.append(wiki_article_1)
+
+    save_file_to_path(json_list=json_obj, dir=FUSION_ENWIKI, filepath=filepath)
+
 def main():
     # create directory if doesn't exist.
-    if not os.path.exists(END_ENWIKI):
-        os.makedirs(END_ENWIKI)
+    if not os.path.exists(SECOND_ENWIKI):
+        os.makedirs(SECOND_ENWIKI)
 
     match args.process_function:
-        case "claimbuster":
+        case "preprocess":
+            multiprocess_bz2(func=preprocess_enwiki,
+                            first_loc=FIRST_ENWIKI,
+                            second_loc=SECOND_ENWIKI,
+                            n_processes=16,
+                            process_style="threads" if args.use_spacy else None)
+        case "claim_detect":
             multiprocess_bz2(func=claimbuster_enwiki,
-                            start_location=START_ENWIKI,
-                            end_location=END_ENWIKI,
+                            first_loc=FIRST_ENWIKI,
+                            second_loc=SECOND_ENWIKI,
                             n_processes=8)
         case "wice":
             multiprocess_bz2(func=wice_enwiki,
-                            start_location=START_ENWIKI,
-                            end_location=END_ENWIKI,
+                            first_loc=FIRST_ENWIKI,
+                            second_loc=SECOND_ENWIKI,
                             n_processes=16)
         case "cite":
             multiprocess_bz2(func=citation_enwiki,
-                            start_location=START_ENWIKI,
-                            end_location=END_ENWIKI,
-                            n_processes=32,
-                            process_style="threads")
-        case "preprocess":
-            multiprocess_bz2(func=preprocess_enwiki,
-                            start_location=START_ENWIKI,
-                            end_location=END_ENWIKI,
+                            first_loc=FIRST_ENWIKI,
+                            second_loc=SECOND_ENWIKI,
                             n_processes=16,
-                            process_style="threads" if args.use_spacy else None)
+                            process_style="threads")
+        case "fusion":
+            if not os.path.exists(FUSION_ENWIKI):
+                os.makedirs(FUSION_ENWIKI)
+
+            multiprocess_bz2(func=fusion_enwiki,
+                            first_loc=FIRST_ENWIKI,
+                            second_loc=SECOND_ENWIKI,
+                            third_loc=FUSION_ENWIKI,
+                            n_processes=16)
+
         case _:
             print("Incorrect function passed for:\n" +
-            "--process_function [preprocess | claimbuster | claimbuster_current | wice | cite]")
+            "--process_function [preprocess | claim_detect | claimbuster_current | wice | cite]")
 
 if __name__ == "__main__":
     main()

@@ -129,6 +129,7 @@ def main():
     index.add(doc_embeddings)
     index = faiss.index_gpu_to_cpu(index)
     faiss.write_index(index, save_index_path)
+    logger.info(f"Finished writing Index to {save_index_path}")
 
 
 if __name__ == "__main__":

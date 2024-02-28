@@ -175,10 +175,16 @@ def preprocess(args):
     
     pid2offset = {}
     if args.data_type == 0:
-        in_passage_path = os.path.join(
-            args.data_dir,
-            args.dataset+"-docs.tsv",
-        )
+        if args.dataset == "hover" or args.dataset == "wice":
+            in_passage_path = os.path.join(
+                args.data_dir,
+                args.enwiki_name+"-docs.tsv",
+            )
+        else:
+            in_passage_path = os.path.join(
+                args.data_dir,
+                "msmarco-docs.tsv",
+            )
     else:
         in_passage_path = os.path.join(
             args.data_dir,
@@ -246,7 +252,7 @@ def preprocess(args):
     print("done saving pid2offset")
     
     if args.data_type == 0:
-        if args.dataset == "enwiki":
+        if args.is_enwiki:
             write_query_rel(
                 args,
                 pid2offset,
@@ -350,6 +356,7 @@ def preprocess(args):
             "lead-query",
             None)
 
+
 def PassagePreprocessingFn(args, line, tokenizer):
     if args.data_type == 0:
         line_arr = line.split('\t')
@@ -436,6 +443,14 @@ def get_arguments():
         help="name of the dataset to preprocess",
     )
 
+    parser.add_argument(
+        "--enwiki_name",
+        default=None,
+        type=str,
+        required=True,
+        help="[enwiki-2017-original | enwiki-2023-cite]",
+    )
+
     parser.add_argument("--threads", type=int, default=32)
 
     args = parser.parse_args()
@@ -445,8 +460,9 @@ def get_arguments():
 
 def main():
     args = get_arguments()
+    args.is_enwiki = args.dataset == "hover" or args.dataset == "wice"
     if args.data_type == 0:
-        args.data_dir = "./data/doc/enwiki-dataset" if args.dataset == "enwiki" else "./data/doc/dataset"
+        args.data_dir = f"./data/doc/enwiki-{args.dataset}-dataset/" if args.is_enwiki else "./data/doc/dataset"
         args.out_data_dir = "./data/doc/preprocess"
     else:
         args.data_dir = "./data/passage/dataset"

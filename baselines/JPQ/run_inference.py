@@ -1,10 +1,14 @@
 import argparse
-from jpq.model import DenseRetrievalJPQSearch, JPQDualEncoder
+import faiss
 import torch
 import json
 import re
 import pandas as pd
+import uuid
+import sqlite3
 import os
+import unicodedata
+from jpq.model import DenseRetrievalJPQSearch, JPQDualEncoder
 
 import sys
 sys.path.append(sys.path[0] + "/../..".replace("/", os.path.sep))
@@ -21,10 +25,17 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--data_split",
+    "--setting",
     default=None,
     type=str,
     required=True,
+    help="[enwiki-2017-original | enwiki-2023-cite]",
+)
+
+parser.add_argument(
+    "--data_split",
+    default=None,
+    type=str,
     help="[train | dev | test]",
 )
 
@@ -48,14 +59,47 @@ parser.add_argument(
     type=int,
     help="Number of nearest neighbour documents to retrieve"
 )
+
+parser.add_argument(
+    "--use_gpu",
+    action='store_true',
+    help="Use Faiss-gpu instead of cpu"
+)
+
+parser.add_argument(
+    "--first_paragraph_only",
+    action='store_true',
+    help="For given experiment setting, only use the first available paragraph text"
+)
+
+parser.add_argument(
+    "--sent_select",
+    action='store_true',
+    help="Format data for Sent Retrieval stage of HoVer"
+)
+
 args = parser.parse_args()
 
-def load_documents(tsv_file):
-    tsv_path = os.path.join("data", "doc", "enwiki-dataset", tsv_file)
-    tsv_file = pd.read_csv(tsv_path, delimiter="\t", names=['doc_id', 'url', 'doc_title', 'doc_text'])
-    doc_ids = tsv_file['doc_id'].tolist()
-    doc_titles = tsv_file['doc_title'].tolist()
-    doc_texts = tsv_file['doc_text'].tolist()
+HOVER_PATH = os.path.join("..", "hover", "data")
+db_suffix = "-full.db" if args.first_paragraph_only else "-first.db"
+DB_PATH = os.path.join(HOVER_PATH, "db_files", args.setting + db_suffix)
+
+def load_documents():
+    tsv_path = os.path.join("data", "doc", f"enwiki-{args.dataset_name}-dataset", args.setting + "-docs.tsv")
+    # Check if preprocessing happened, otherwise use the HoVer db file
+    if os.path.isfile(tsv_path):
+        tsv_file = pd.read_csv(tsv_path, delimiter="\t", names=['doc_id', 'url', 'doc_title', 'doc_text'])
+        doc_ids = tsv_file['doc_id'].tolist()
+        doc_titles = tsv_file['doc_title'].tolist()
+        doc_texts = tsv_file['doc_text'].tolist()
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        wiki_db = conn.cursor()
+        results = wiki_db.execute("SELECT id, text FROM documents ORDER BY id COLLATE NOCASE ASC").fetchall()
+        conn.close()
+        doc_titles, doc_texts = zip(*results)
+        doc_ids = [str(uuid.uuid5(uuid.NAMESPACE_OID, str(id))) for id in doc_titles]
+
     corpus = {}
     for id, title, text in zip(doc_ids, doc_titles, doc_texts): 
         corpus[str(id)] = {"title": str(title), "text": str(text)}
@@ -70,56 +114,105 @@ def load_queries(claim_file):
         queries[claim['uid']] = re.sub('\s+', ' ', claim['claim'])
     return claim_json, queries
 
-def get_label_by_uid(uid, claim_json):
-    for item in claim_json:
-        if item['uid'] == uid:
-            return item['label']
-    return None
+def format_for_claim_verification(results, queries, corpus, claim_json, data_split) -> None:
+    def get_label_by_uid(uid, claim_json):
+        for item in claim_json:
+            if item['uid'] == uid:
+                return item['label']
+        return None
 
-def search_and_generate_results(model, corpus, queries, claim_json, device):
+    claim_results = []
+    for query_id, docs_data in results.items():
+        context = " ".join(corpus[doc_id]["text"] for doc_id, _ in docs_data.items())
+        json_result = {'id': query_id, 
+                        'claim': queries[query_id], 
+                        'context': context, 
+                        'label': get_label_by_uid(uid=query_id, claim_json=claim_json)}
+        claim_results.append(json_result)
+
+    retrieve_file = os.path.join(HOVER_PATH, args.dataset_name, "claim_verification", 
+                                    f"hover_{data_split}_claim_verification.json")
+    with open(retrieve_file, 'w', encoding="utf-8") as f:
+        json.dump(claim_results, f)
+
+def format_for_sent_retrieval(results, queries, corpus, claim_json, data_split) -> None:
+    def get_supp_facts_by_uid(uid, claim_json):
+        for item in claim_json:
+            if item['uid'] == uid:
+                return item['supporting_facts']
+        return None
+
+    conn = sqlite3.connect(DB_PATH)
+    wiki_db = conn.cursor()
+    claim_results = []
+    for query_id, docs_data in results.items():
+        context = []
+        for doc_id, _ in docs_data.items():
+            title = corpus[doc_id]["title"]
+            doc_text = wiki_db.execute("SELECT text FROM documents WHERE id = ?", 
+                                                    (unicodedata.normalize('NFD',title),)).fetchone()[0]
+            context_sents = str(doc_text).split("[SENT]")
+            context_sents.insert(0, title)
+            context.append(context_sents)
+
+        json_result = {'id': query_id, 
+                       'claim': queries[query_id], 
+                       'context': context, 
+                       'supporting_facts': get_supp_facts_by_uid(uid=query_id, claim_json=claim_json)}
+        claim_results.append(json_result)
+    conn.close()
+    retrieve_file = os.path.join(HOVER_PATH, args.dataset_name, "sent_retrieval", 
+                        f"hover_{data_split}_sent_retrieval.json")
+    with open(retrieve_file, 'w', encoding="utf-8") as f:
+        json.dump(results, f)
+
+
+def search_and_generate_results(model, corpus, queries, claim_json, device, batch_size, data_split):
     dr_jpq = DenseRetrievalJPQSearch(dataset_name=args.dataset_name,
                                      model=model, 
                                      subvectors_num=args.subvectors_num,
-                                     batch_size=args.batch_size)
+                                     batch_size=batch_size,
+                                     use_gpu=args.use_gpu)
     # Create or load corpus index
-    index_path = os.path.join("data","eval",f"OPQ{args.subvectors_num},IVF1,PQ{args.subvectors_num}x8.index")
-    with ProcessMonitor(dataset=args.dataset_name) as pm:
-        pm.start()
-        dr_jpq.index_corpus(corpus=corpus, score_function="dot")
+    index_path = os.path.join("data", "doc", "indices",
+                              f"{args.setting}-{args.subvectors_num}x8.index")
+    if os.path.isfile(index_path):
+        dr_jpq.corpus_index = faiss.read_index(index_path)
+    else:
+        with ProcessMonitor(dataset=args.dataset_name) as pm:
+            pm.start()
+            dr_jpq.index_corpus(corpus=corpus, score_function="dot", index_path=index_path)
 
-    vecs_size = os.path.getsize(index_path)
-    total_vecs = dr_jpq.corpus_index.ntotal
-    print(f"{total_vecs} Vectors, ", 
-            f"Total size: {format_size(vecs_size)}, ", 
-            f"Vector size: {format_size(vecs_size/total_vecs)}")
+        vecs_size = os.path.getsize(index_path)
+        total_vecs = dr_jpq.corpus_index.ntotal
+        print(f"{total_vecs} Vectors, ", 
+                f"Total size: {format_size(vecs_size)}, ", 
+                f"Vector size: {format_size(vecs_size/total_vecs)}")
 
     # Perform Retrieval
     with ProcessMonitor(dataset=args.dataset_name) as pm:
         pm.start()
         results = dr_jpq.search(corpus=corpus, queries=queries, 
                                 top_k=args.top_k_nn, score_function="dot", device=device)
-        claim_results = []
-        for query_id, docs_data in results.items():
-            context = " ".join(corpus[doc_id]["text"] for doc_id, _ in docs_data.items())
-            json_result = {'id': query_id, 
-                            'claim': queries[query_id], 
-                            'context': context, 
-                            'label': get_label_by_uid(query_id, claim_json)}
-            claim_results.append(json_result)
-
-        retrieve_file = os.path.join("data","eval", args.data_split + ".json")
-        with open(retrieve_file, 'w', encoding="utf-8") as f:
-            json.dump(results, f)
+        if args.sent_select:
+            format_for_sent_retrieval(results, queries, corpus, claim_json, data_split)
+        else:
+            format_for_claim_verification(results, queries, corpus, claim_json, data_split)
 
 def main():
-    jpq_path = (f"data/doc/eval/m{args.subvectors_num}/doc_encoder", 
-                f"data/doc/eval/m{args.subvectors_num}/query_encoder")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    jpq_path = (f"data/doc/eval/enwiki-2017-original/m{args.subvectors_num}/doc_encoder", 
+                f"data/doc/eval/enwiki-2017-original/m{args.subvectors_num}/query_encoder")
+    device = torch.device("cuda" if args.use_gpu and torch.cuda.is_available()  else "cpu")
     model = JPQDualEncoder(model_path=jpq_path)
-    corpus = load_documents("enwiki-docs.tsv")
-    claim_json, queries = load_queries(f"hover_{args.data_split}_release_v1.1.json")
-    search_and_generate_results(model, corpus, queries, claim_json, device)
-    print("Finished inference JPQ")
+    corpus = load_documents()
+    if args.data_split:
+        claim_json, queries = load_queries(f"{args.dataset_name}_{args.data_split}_release_v1.1.json")
+        search_and_generate_results(model, corpus, queries, claim_json, device, args.batch_size, args.data_split)
+    else:
+        claim_json, queries = load_queries(f"{args.dataset_name}_train_release_v1.1.json")
+        search_and_generate_results(model, corpus, queries, claim_json, device, 128, "train")
+        claim_json, queries = load_queries(f"{args.dataset_name}_dev_release_v1.1.json")
+        search_and_generate_results(model, corpus, queries, claim_json, device, 1, "dev")
 
 if __name__ == "__main__":
     main()

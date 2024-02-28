@@ -5,7 +5,7 @@ from ELasticSearch import ElasticSearch
 import os
 import sys 
 
-sys.path.append(sys.path[0] + '/../../..')
+sys.path.append(sys.path[0] + '/../..'.replace("/", os.path.sep))
 from scripts.monitor_utils import ProcessMonitor, format_size
 
 def sleep(seconds):

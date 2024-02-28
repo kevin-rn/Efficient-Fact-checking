@@ -12,12 +12,11 @@ from typing import List, Dict
 from faiss_search import FaissSearch
 import re
 import sys
-sys.path.append(sys.path[0] + "/../..".replace("/", os.path.sep))
+sys.path.append(sys.path[0] + os.path.sep + "..")
 from scripts.monitor_utils import ProcessMonitor
-import unicodedata
 
 ### Argument parsing
-### e.g. python faiss/run_faiss_search.py --hover_stage=claim_verification --rerank_mode=none --n_neighbours=5 \
+### e.g. python faiss/run_faiss_search.py --hover_stage=claim_verification --rerank_mode=none --topk_nn=5 \
 ### --n_rerank=5 --use_gpu --precompute_embed --compress_embed
 parser = ArgumentParser()
 
@@ -49,7 +48,7 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--n_neighbours",
+    "--topk_nn",
     default=5,
     type=int,
     help="Top-k documents to retrieve for nearest neighbours FAISS"
@@ -80,13 +79,13 @@ parser.add_argument(
 args = parser.parse_args()
 
 if args.setting:
-    ENWIKI_DB = os.path.join("data", "db_files", args.setting + ".db")  
+    ENWIKI_DB = os.path.join("hover", "data", "db_files", args.setting + ".db")  
 else:
-    ENWIKI_DB = os.path.join("data", "wiki_wo_links.db")
+    ENWIKI_DB = os.path.join("hover","data", "wiki_wo_links.db")
 
-UNQ_CHECKPOINT = os.path.join("..", "unq", "notebooks", "logs", 
+UNQ_CHECKPOINT = os.path.join("unq", "notebooks", "logs", 
                               "enwiki_claim_unq_16b_original-full", "checkpoint_best.pth")
-EMBED_FILE = os.path.join("data", "embed_files", f"{args.setting}.h5")
+EMBED_FILE = os.path.join("hover", "data", "embed_files", f"{args.setting}.h5")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 encoder = SentenceTransformer(
@@ -203,15 +202,12 @@ def format_for_claim_verification(claim_args: dict) -> None:
                                 doc_list=docs[idx], 
                                 top_k=args.n_rerank, 
                                 rerank_mode=args.rerank_mode)
-
         json_result = {'id': claim_obj['uid'], 
-                       'claim': re.sub('\s+',' ', claim_obj['claim']), 
+                       'claim': claim_obj['claim'], 
                        'context': evidence_text, 
                        'label': claim_obj['label']}
         results.append(json_result)
-    assert len(results) == len(docs)
-
-    retrieve_file = os.path.join("data", claim_args['dataset_name'], "claim_verification", 
+    retrieve_file = os.path.join("hover", "data", claim_args['dataset_name'], "claim_verification", 
                             f"hover_{claim_args['datasplit']}_claim_verification.json")
     with open(retrieve_file, 'w', encoding="utf-8") as f:
         json.dump(results, f)
@@ -231,15 +227,12 @@ def format_for_sent_retrieval(claim_args: dict) -> None:
     for idx in range(len(docs)):
         claim_obj = claim_args['claims'][idx]
         context_data = [[doc_title, doc_text.split('[SENT]')] for doc_title, doc_text in zip(doc_titles[idx], docs[idx])]
-
         json_result = {'id': claim_obj['uid'], 
-                       'claim': re.sub('\s+',' ', claim_obj['claim']), 
+                       'claim': claim_obj['claim'], 
                        'context': context_data, 
                        'supporting_facts': claim_obj['supporting_facts']}
         results.append(json_result)
-
-
-    retrieve_file = os.path.join("data", claim_args['dataset_name'], "sent_retrieval", 
+    retrieve_file = os.path.join("hover", "data", claim_args['dataset_name'], "sent_retrieval", 
                         f"{claim_args['dataset_name']}_{claim_args['datasplit']}_sent_retrieval.json")
     with open(retrieve_file, 'w', encoding="utf-8") as f:
         json.dump(results, f)
@@ -255,7 +248,7 @@ def claim_retrieval(faiss_search: FaissSearch, dataset_name:str, data_split: str
     # Embed claim
     print(f"-- Retrieval for {data_split} set --")
 
-    claims_file = os.path.join("data", dataset_name, f"{dataset_name}_{data_split}_release_v1.1.json")
+    claims_file = os.path.join("hover", "data", dataset_name, f"{dataset_name}_{data_split}_release_v1.1.json")
     with ProcessMonitor(dataset=dataset_name) as pm:
         pm.start()
         # Retrieve for each claim the top-5 nearest neighbour documents.
@@ -263,7 +256,7 @@ def claim_retrieval(faiss_search: FaissSearch, dataset_name:str, data_split: str
             claim_json = json.load(json_file)
         claims = [re.sub("\s+", " ", claim_obj['claim']) for claim_obj in claim_json]
         topk_nn = faiss_search.get_top_n_neighbours(query_list=claims, 
-                                                    top_k=args.n_neighbours, 
+                                                    top_k=args.topk_nn, 
                                                     batched=batched,
                                                     doc_database=ENWIKI_DB)
         claim_args = {"topk_nn": topk_nn,

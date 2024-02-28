@@ -46,7 +46,7 @@ def main():
     )
 
     parser.add_argument(
-        "--db_name",
+        "--setting",
         default=None,
         type=str,
         help="Name of the db file inside data/db_files folder"
@@ -60,8 +60,8 @@ def main():
     args = parser.parse_args()
     with ProcessMonitor(dataset=args.dataset_name) as pm:
         pm.start()
-        if args.db_name:
-            wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', args.db_name + '.db'))
+        if args.setting:
+            wiki_db = connect_to_db(os.path.join(args.data_dir, 'db_files', args.setting + '.db'))
         else:
             wiki_db = connect_to_db(os.path.join(args.data_dir, 'wiki_wo_links.db'))
 
