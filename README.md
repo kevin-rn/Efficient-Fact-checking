@@ -4,6 +4,7 @@
 ## Quick Links
 
   - [Folder structure](#folder-structure)
+  - [Dependencies](#dependencies)
   - [Setup](#setup)
   - [Pipeline](#pipeline)
   - [Citation](#citation)
@@ -51,6 +52,16 @@ The (sub)folders of data, model, and out are instantiated when setting up the pr
 * out: will contain the model checkpoints for each HoVer pipeline stage as well as the predictions for each checkpoint.
 * scripts: Bash scripts for running the three retrieval pipeline settings (bm25, faiss, jpq) as well as shell scripts for setting up data folder and downloading wikipedia dump.
 * src: Contains the main hover pipeline, retrieval folder containing the retrieval methods, tools for misecellenous helper code and forked [wikiextractor](https://github.com/qipeng/wikiextractor) for processing the wikipedia dump.
+
+## Dependencies
+For installing all dependencies, we recommend using Anaconda and installing the ``grounding_env.yml`` file. Please ensure that the environment is named "grounding" as the scripts will explicitly attempt to activate it. Alternatively, rename all instances in the scripts folder.
+
+Since HoVer has a somewhat outdated codebase, and to avoid breaking existing working code, a separate environment YAML file, ``hover_env.yml``, has been created with older dependencies. Similarly to the "grounding" environment, ensure that this environment is named "hover".
+
+```console
+foo@bar:~$ conda env create  --file=grounding_env.yml
+foo@bar:~$ conda env create  --file=hover_env.yml
+```
 
 ## Setup
 The intial first step is creating the necessary folders to hold data to run the pipeline:
