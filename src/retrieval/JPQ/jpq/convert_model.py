@@ -8,7 +8,9 @@ from transformers import RobertaConfig
 from .model import JPQTower
 
 
-def format_encoder(robertadot_path: str, init_index_path: str, output_path: str):
+def format_encoder(
+    robertadot_path: str, init_index_path: str, output_path: str
+) -> None:
     """
     Converts RobertaDot model to JPQTower model
     source: https://github.com/jingtaozhan/JPQ/issues/4

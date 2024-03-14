@@ -9,20 +9,13 @@ The basic code structure was adapted from [Transformers](https://github.com/hugg
 * PyTorch 1.4.0/1.6.0
 * See `requirements.txt`.
 
-### Data
-* Run `download_data.sh` to download the HoVer dataset.
-
+Note: the dependencies are part of the ``hover_env.yml``
 
 ## 1. Document Retrieval
+This section remains the same as the original HoVer repository, for more information on the retrieval methods see the README in ``src/retrieval``.
+
 ### TF-IDF Pre-retrieval
 We provide the top-100 Wikipedia articles retrieved by running [DRQA](https://github.com/facebookresearch/DrQA) on the HoVer dataset. It was already downloaded in `data/hover/tfidf_retrieved`.
-
-### BM25 (ElasticSearch)
-```
-./../numerical-llm/elasticsearch-8.11.3/bin/elasticsearch -d -p pid  
-python bm25/run_bm25_search.py --dataset_name=[DATASETNAME] [--db_name=DB_NAME]
-pkill -F ./../numerical-llm/elasticsearch-8.11.3/pid
-```
 
 ### Training Neural-based Document Retrieval Model
 * Prepare the data by running:
@@ -42,17 +35,6 @@ This will add the top-20 TF-IDF retrieved documents to the data as candidates of
 ``` 
 This will evaluate the model on both the training set and dev set because we need both predictions to construct the training/dev set for the sentence selection.
 
-## Alternatively 1. Dense retrieval
-* Perform FAISS top-k document retrieval. Output will be stored inside the `hover/data/hover/claim_verification` folder
-```
-python faiss/run_faiss_search.py [--setting=VALUE] [--top_k_nn=OTHER_VALUE] [--use_gpu]
-```
-* to avoid topic drift by reranking sentences add:
-```
- --rerank_mode=[none | within | between]  [--top_k_rerank=OTHER_VALUE]
-```
-* Skip step 2. and go to step 3.
-
 ## 2. Sentence Selection
 ### Training Sentence-selection Model
 * First, start the Stanford Corernlp in the background. We use Corenlp to split the sentences:
@@ -69,8 +51,6 @@ This will add the sentences from the top-5 retrieved documents as candidates of 
 
 * Run `./cmds/train_scripts/train_sent_retrieval.sh`. The model checkpoints are saved in `out/hover/exp1.0/sent_retrieval`.
 
-
-
 ### Evaluating Sentence-selection Model
 * Run the evaluation:
 ```
@@ -79,8 +59,8 @@ This will add the sentences from the top-5 retrieved documents as candidates of 
 ``` 
 This will evaluate the model on both the training set and dev set because we need both predictions to construct the training/dev set for the claim verification.
 
-## Alternatively 2. Immediate Claim verification
-* Prepare data for Claim verification
+## (Alternative) 2. Immediate Claim verification
+* Prepare data for Claim verification for the reranking setup (requires the grounding environment)
 ```
 python prepare_doc_retrieve_for_claim_verification.py --data_split=train --doc_retrieve_range=5
 python prepare_doc_retrieve_for_claim_verification.py --data_split=dev --doc_retrieve_range=5

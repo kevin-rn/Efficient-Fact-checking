@@ -5,6 +5,8 @@
 **/logs/
 
 data/*
+!data/wice
+!data/hover
 models/*
 out/*
 stanford-corenlp-4.5.5/*

@@ -67,16 +67,6 @@ foo@bar:~$ conda env create  --file=grounding_env.yml
 foo@bar:~$ conda env create  --file=hover_env.yml
 ```
 
-## Dependencies
-For installing all dependencies, we recommend using Anaconda and installing the ``grounding_env.yml`` file. Please ensure that the environment is named "grounding" as the scripts will explicitly attempt to activate it. Alternatively, rename all instances in the scripts folder.
-
-Since HoVer has a somewhat outdated codebase, and to avoid breaking existing working code, a separate environment YAML file, ``hover_env.yml``, has been created with older dependencies. Similarly to the "grounding" environment, ensure that this environment is named "hover".
-
-```console
-foo@bar:~$ conda env create  --file=grounding_env.yml
-foo@bar:~$ conda env create  --file=hover_env.yml
-```
-
 ## Setup
 The intial first step is creating the necessary folders to hold data to run the pipeline:
 ```console
@@ -102,20 +92,16 @@ To use a different wikipedia dump, download it from aforementioned wikimedia dum
 ```console
 foo@bar:~$ ./scripts/preprocess_wiki_dump.sh
 ```
-The exact steps this script performs are as follows. To use the data for the pipeline first some preprocessing needs to be done using HotPotQA's forked [WikiExtractor](https://github.com/qipeng/wikiextractor) to get the above format. First install the WikiExtractor as pip module:
+The exact steps this script performs are as follows. To use the data for the pipeline first some preprocessing needs to be done using HotPotQA's forked [WikiExtractor](https://github.com/qipeng/wikiextractor) to get the above format. First install the WikiExtractor as pip module and afterwards prepocess it with the module:
 ```console
 foo@bar:~$ cd src/wikiextractor
 foo@bar:~$ pip install .
 foo@bar:~$ cd ../..
-```
 
-For preprocessing it, run the following:
-
-```console
 foo@bar:~$ python -m src.wikiextractor.WikiExtractor enwiki-latest-pages-articles.xml.bz2 -o data/enwiki_files/enwiki-latest --no-templates -c --json
 ```
 
-Lastly, as the sentences are still contenated some further processing is needed. This requires a NLP model for sentence splitting. In our case we provide implementation to use either [StanfordCoreNLP](https://stanfordnlp.github.io/CoreNLP/) as well as [spaCy's en_core_web_lg model](https://spacy.io/models/en#en_core_web_lg). 
+Lastly, as the sentences are still concatenated some further processing is needed. This requires a NLP model for sentence splitting. In our case we provide implementation to use either [StanfordCoreNLP](https://stanfordnlp.github.io/CoreNLP/) as well as [spaCy's en_core_web_lg model](https://spacy.io/models/en#en_core_web_lg). 
 
 For StanfordCoreNLP run inside the folder on a seperate terminal:
 ```console
@@ -157,6 +143,8 @@ positional arguments:
                         for each article 'fact_text' instead of overwriting the 'text' field.
 
 optional arguments:
+    -h, --help          show this help message and exit
+    
     --mmr               Store top-k sentences from the supporting fact extraction. Used only in 
                         the custom model code.
     
@@ -184,6 +172,8 @@ positional arguments:
                         single json file containing all entries for the corpus size.
 
 optional arguments:
+    -h, --help          show this help message and exit
+
     --split_sent        Store invidiual sentences in the database instead of the concatenated 
                         text per wikipedia article.
 
@@ -221,24 +211,19 @@ foo@bar:~$ ./scripts/run_compress_pipeline.sh CLAIM_NAME SETTING HOVER_STAGE RET
 Note: Training encoders from scratch is possible, by passing the ensuring there is no encoders folder (setting name) in the data/jpq_doc folder.
 
 arguments:
-  CLAIM_NAME            Name of the claim dataset to run for e.g. hover or wice
-
-  SETTING               Name of the data corpus to run for (name of the database file)
-
-  BM25_TYPE             Run for original pipeline setting or reranking (skips sentence 
-                        selection stage) e.g. original or -
-
+  CLAIM_NAME            Name of the claim dataset to run for [hover | wice]
+  SETTING               Name of the data corpus to run for, in other words the name of the database file
+  BM25_TYPE             Run for original pipeline setting or reranking which skips sentence 
+                        selection stage (original)
   HOVER_STAGE           Perform immediate claim verification stage or include sentence 
-                        selection e.g. sent_select or -
-
-  RETRIEVAL_MODE        Perform cpu (default) or gpu retrieval e.g. cpu or gpu.
-
-  SUBVECTORS            Amount of subvectors to use e.g. 96 (default)
+                        selection (sent_select)
+  RETRIEVAL_MODE        Perform cpu or gpu retrieval (default: cpu)
+  SUBVECTORS            Amount of subvectors to use (default: 96)
 
 
 
 ```
-
+For more information on retrieval methods, read the README inside ``src/retrieval``.
 For more information on each HoVer stage, read the README inside ``src/hover``.
 
 ## Citation

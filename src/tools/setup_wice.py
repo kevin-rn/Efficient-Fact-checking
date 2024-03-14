@@ -21,7 +21,7 @@ URLS = [
 WICE_FOLDER = os.path.join("data", "wice")
 
 
-def download_wice():
+def download_wice() -> None:
     """
     Downloads the WICE dataset into the data folder.
     """
@@ -32,7 +32,7 @@ def download_wice():
         wget.download(url, out=WICE_FOLDER)
 
 
-def convert_wice():
+def convert_wice() -> None:
     """
     Converts the downloaded WICE dataset into HoVer format.
     """

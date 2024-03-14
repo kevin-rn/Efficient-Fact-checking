@@ -45,11 +45,6 @@ parser.add_argument(
     help="[preprocess | claim_detect | wice | cite | fusion ]",
 )
 parser.add_argument(
-    "--first_paragraph_only",
-    action="store_true",
-    help="Only use text from the first paragraph instead of whole document",
-)
-parser.add_argument(
     "--do_mmr",
     action="store_true",
     help="Perform MMR-Retrieval before Binary claim classification.",

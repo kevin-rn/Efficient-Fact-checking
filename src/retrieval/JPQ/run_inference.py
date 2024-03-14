@@ -5,10 +5,10 @@ import re
 import sqlite3
 import unicodedata
 import uuid
+from typing import Dict, List, Tuple
 
 import faiss
 import pandas as pd
-import torch
 
 from src.tools.monitor_utils import ProcessMonitor, format_size
 
@@ -82,7 +82,13 @@ db_suffix = "-first.db" if args.first_paragraph_only else "-full.db"
 DB_PATH = os.path.join("data", "db_files", args.setting + db_suffix)
 
 
-def load_documents():
+def load_documents() -> Dict[str, str]:
+    """
+    Load documents from the dataset.
+
+    Returns:
+        dict: A dictionary containing document IDs as keys and document titles and texts as values.
+    """
     tsv_path = os.path.join(
         "data", "doc", f"enwiki-{args.dataset_name}-dataset", args.setting + "-docs.tsv"
     )
@@ -110,7 +116,16 @@ def load_documents():
     return corpus
 
 
-def load_queries(claim_file):
+def load_queries(claim_file: str) -> Tuple[List, Dict]:
+    """
+    Load queries from a JSON file.
+
+    Args:
+        claim_file (str): The filename of the JSON file containing queries.
+
+    Returns:
+        tuple: A tuple containing a list of query items and a dictionary of queries.
+    """
     claims_path = os.path.join("data", args.dataset_name, claim_file)
     with open(claims_path, "r") as f:
         claim_json = json.load(f)
@@ -121,8 +136,22 @@ def load_queries(claim_file):
 
 
 def format_for_claim_verification(
-    results, queries, corpus, claim_json, data_split
+    results: Dict, queries: Dict, corpus: Dict, claim_json: List, data_split: str
 ) -> None:
+    """
+    Format retrieval results for claim verification stage.
+
+    Args:
+        results (dict): Dictionary containing retrieval results.
+        queries (dict): Dictionary containing queries.
+        corpus (dict): Dictionary containing document corpus.
+        claim_json (list): List of JSON objects containing claims.
+        data_split (str): Data split identifier.
+
+    Returns:
+        None
+    """
+
     def get_label_by_uid(uid, claim_json):
         for item in claim_json:
             if item["uid"] == uid:
@@ -150,7 +179,23 @@ def format_for_claim_verification(
         json.dump(claim_results, f)
 
 
-def format_for_sent_retrieval(results, queries, corpus, claim_json, data_split) -> None:
+def format_for_sent_retrieval(
+    results: Dict, queries: Dict, corpus: Dict, claim_json: List, data_split: str
+) -> None:
+    """
+    Format retrieval results for sentence retrieval stage.
+
+    Args:
+        results (dict): Dictionary containing retrieval results.
+        queries (dict): Dictionary containing queries.
+        corpus (dict): Dictionary containing document corpus.
+        claim_json (list): List of JSON objects containing claims.
+        data_split (str): Data split identifier.
+
+    Returns:
+        None
+    """
+
     def get_supp_facts_by_uid(uid, claim_json):
         for item in claim_json:
             if item["uid"] == uid:
@@ -192,8 +237,27 @@ def format_for_sent_retrieval(results, queries, corpus, claim_json, data_split) 
 
 
 def search_and_generate_results(
-    model, corpus, queries, claim_json, batch_size, data_split
+    model: JPQDualEncoder,
+    corpus: Dict,
+    queries: Dict,
+    claim_json: List,
+    batch_size: int,
+    data_split: str,
 ):
+    """
+    Search for relevant documents and generate retrieval results.
+
+    Args:
+        model: The JPQDualEncoder model instance.
+        corpus (dict): A dictionary containing document IDs as keys and document titles and texts as values.
+        queries (dict): A dictionary containing query IDs as keys and query texts as values.
+        claim_json (list): A list of JSON objects containing claims.
+        batch_size (int): Batch size for inference.
+        data_split (str): Data split identifier.
+
+    Returns:
+        None
+    """
     dr_jpq = DenseRetrievalJPQSearch(
         dataset_name=args.dataset_name,
         model=model,

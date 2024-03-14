@@ -19,14 +19,14 @@ conda activate grounding
 # --compress_embed
 
 echo -e "\nIndex Compression"
+# For different reranking datasets setup the jpq format data
+python -m src.tools.qrels_format_enwiki \
+  --dataset_name $claim_name \
+  --setting $setting
+
 model_setting=$(echo "$setting" | sed 's/-[^-]*$//')
-if [ -d "./models/$model_setting" ]; 
+if ! [ -d "./models/$model_setting" ]; 
   then
-    # For different reranking datasets setup the jpq format data
-    python -m src.tools.qrels_format_enwiki \
-    --dataset_name $claim_name \
-    --setting $setting
-else
     # Skip JPQ model training if encoders already exists
     echo -e "Preprocess data\n"
     python -m src.retrieval.JPQ.jpq.preprocess \
