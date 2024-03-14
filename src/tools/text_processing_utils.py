@@ -1,20 +1,21 @@
 import bz2
-import cchardet # speed up lxml (html parsing) just by importing
 import contextlib
 import json
-import lxml
 import os
 import warnings
+from typing import Any, List
 
-from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning 
+import cchardet  # speed up lxml (html parsing) just by importing
 import joblib
+import lxml
+from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
 from joblib import Parallel, delayed
-from tqdm import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
-from typing import List, Any
+from tqdm import tqdm
 
 warnings.simplefilter("ignore")
 os.environ["PYTHONWARNINGS"] = "ignore"
+
 
 @contextlib.contextmanager
 def tqdm_joblib(tqdm_object: tqdm):
@@ -25,6 +26,7 @@ def tqdm_joblib(tqdm_object: tqdm):
     Parameters:
         tqdm_object (tqdm): tqdm object for multiprocessing.
     """
+
     class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
         def __call__(self, *args, **kwargs):
             tqdm_object.update(n=self.batch_size)
@@ -37,6 +39,7 @@ def tqdm_joblib(tqdm_object: tqdm):
     finally:
         joblib.parallel.BatchCompletionCallBack = old_batch_callback
         tqdm_object.close()
+
 
 def search_file_paths(dir: str, suffix: str = ".bz2") -> List[str]:
     """
@@ -56,9 +59,10 @@ def search_file_paths(dir: str, suffix: str = ".bz2") -> List[str]:
                 file_paths.append(bz2_filepath[len(dir) :])
     return file_paths
 
+
 def save_file_to_path(json_list: List[Any], dir: str, filepath: str) -> None:
     """
-    Writes json objects to a bz2 file for a given filepath. 
+    Writes json objects to a bz2 file for a given filepath.
     """
     folderpath = dir + os.path.split(filepath)[0]
     if not os.path.exists(folderpath):
@@ -70,23 +74,37 @@ def save_file_to_path(json_list: List[Any], dir: str, filepath: str) -> None:
             bz2_f.write(json_data.encode("utf-8"))
             bz2_f.write(b"\n")
 
-def multiprocess_bz2(func: Any, first_loc: str, second_loc: str, third_loc: str = None, n_processes: int=16, process_style=None) -> Any:
+
+def multiprocess_bz2(
+    func: Any,
+    first_loc: str,
+    second_loc: str,
+    third_loc: str = None,
+    n_processes: int = 16,
+    process_style=None,
+) -> Any:
     """
     Performs multiprocessing for a given function and its filepaths.
     """
     # Get all filepaths to still process for.
     file_paths = search_file_paths(first_loc)
-    exclude_paths = search_file_paths(third_loc) if third_loc else search_file_paths(second_loc)
+    exclude_paths = (
+        search_file_paths(third_loc) if third_loc else search_file_paths(second_loc)
+    )
     search_paths = list(set(file_paths).symmetric_difference(set(exclude_paths)))
     print(f"total files: {len(file_paths)}, pending: {len(search_paths)}")
 
     # Start Multiprocessing using joblib.
-    with tqdm_joblib(tqdm(desc="Process bz2 file", total=len(search_paths))) as progress_bar:
+    with tqdm_joblib(
+        tqdm(desc="Process bz2 file", total=len(search_paths))
+    ) as progress_bar:
         results = Parallel(n_jobs=n_processes, prefer=process_style)(
-            delayed(func)(bz2_filepath, first_loc, second_loc) for bz2_filepath in search_paths
+            delayed(func)(bz2_filepath, first_loc, second_loc)
+            for bz2_filepath in search_paths
         )
 
     return results
+
 
 def remove_html_tags(sentences: List[str]) -> List[str]:
     """
@@ -101,13 +119,15 @@ def remove_html_tags(sentences: List[str]) -> List[str]:
         result.append(soup.get_text(strip=False))
     return result
 
+
 def get_file_iter(file: Any, filepath: str) -> tqdm:
     """
     Get progressbar for bz2 file.
     """
-    file_size = sum(1 for _ in file) # total amount of wiki articles
-    file.seek(0) # reset read pointer
+    file_size = sum(1 for _ in file)  # total amount of wiki articles
+    file.seek(0)  # reset read pointer
     return tqdm(file, desc=f"Processing {filepath}", leave=False, total=file_size)
+
 
 async def get_url(url, session):
     try:

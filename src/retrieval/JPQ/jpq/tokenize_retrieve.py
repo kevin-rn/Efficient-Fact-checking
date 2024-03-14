@@ -3,38 +3,40 @@
 This script tokenizes queries and then runs retrieval, 
 while run_retrieval.py uses pre-tokenized queries and only runs retrieval.
 """
-import os
-import faiss
-import torch
-import pickle
-import logging
 import argparse
-import numpy as np
-from tqdm import tqdm
-from transformers import RobertaConfig
+import logging
+import os
+import pickle
 from timeit import default_timer as timer
+
+import faiss
+import numpy as np
+import torch
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.sampler import SequentialSampler
+from tqdm import tqdm
+from transformers import RobertaConfig
 
-from .model import RobertaDot
-from .star_tokenizer import RobertaTokenizer
 from .dataset import get_collate_function
+from .model import RobertaDot
 from .run_retrieval import load_index
+from .star_tokenizer import RobertaTokenizer
 
 
 class TRECQueryDataset(Dataset):
     def __init__(self, query_file_path, max_query_length):
         self.tokenizer = RobertaTokenizer.from_pretrained(
-            "roberta-base", do_lower_case = True, cache_dir=None)
+            "roberta-base", do_lower_case=True, cache_dir=None
+        )
         self.text_queries = []
-        for line in open(query_file_path, 'r'):
+        for line in open(query_file_path, "r"):
             qid, query = line.split("\t")
             qid, query = int(qid), query.strip()
             self.text_queries.append((qid, query))
         self.max_query_length = max_query_length
 
-    def __len__(self):  
+    def __len__(self):
         return len(self.text_queries)
 
     def __getitem__(self, item):
@@ -43,8 +45,9 @@ class TRECQueryDataset(Dataset):
             text,
             add_special_tokens=True,
             max_length=self.max_query_length,
-            truncation=True)
-        attention_mask = [1]*len(input_ids)
+            truncation=True,
+        )
+        attention_mask = [1] * len(input_ids)
 
         ret_val = {
             "input_ids": input_ids,
@@ -56,14 +59,13 @@ class TRECQueryDataset(Dataset):
 
 def query_inference(model, index, args):
     query_dataset = TRECQueryDataset(
-        query_file_path=args.query_file_path,
-        max_query_length=args.max_query_length
+        query_file_path=args.query_file_path, max_query_length=args.max_query_length
     )
-    
+
     model = model.to(args.device)
     if args.n_gpu > 1:
         model = torch.nn.DataParallel(model)
-    
+
     dataloader = DataLoader(
         query_dataset,
         sampler=SequentialSampler(query_dataset),
@@ -87,7 +89,9 @@ def query_inference(model, index, args):
         all_query_ids.extend(ids)
         with torch.no_grad():
             query_embeds = model(**inputs).detach().cpu().numpy()
-            batch_results_scores, batch_results_pids = index.search(query_embeds, args.topk)
+            batch_results_scores, batch_results_pids = index.search(
+                query_embeds, args.topk
+            )
             all_search_results_pids.extend(batch_results_pids.tolist())
             all_search_results_scores.extend(batch_results_scores.tolist())
     return all_query_ids, all_search_results_scores, all_search_results_pids
@@ -99,21 +103,24 @@ def main():
     parser.add_argument("--index_path", type=str, required=True)
     parser.add_argument("--query_encoder_dir", type=str, required=True)
     parser.add_argument("--output_path", type=str, required=True)
-    parser.add_argument("--output_format", type=str, choices=["msmarco", "trec"], required=True)
+    parser.add_argument(
+        "--output_format", type=str, choices=["msmarco", "trec"], required=True
+    )
 
     # these two arguments are used simply for converting offset pids to official pids
     parser.add_argument("--pid2offset_path", type=str, required=True)
     # msmarco doc use D... as document ids, if dataset == "doc", we need to explicitly add "D" as prefix
     # preprocess.py shoud have saved this D in the pid2offset.pickle ...
-    parser.add_argument("--dataset", type=str, choices=["doc", "passage"], required=True)
+    parser.add_argument(
+        "--dataset", type=str, choices=["doc", "passage"], required=True
+    )
 
     parser.add_argument("--max_query_length", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--topk", type=int, default=100)
     parser.add_argument("--gpu_search", action="store_true")
-    
-    args = parser.parse_args()
 
+    args = parser.parse_args()
 
     if args.gpu_search:
         args.device = torch.device("cuda:0")
@@ -121,39 +128,46 @@ def main():
     else:
         args.device = torch.device("cpu")
         args.n_gpu = 0
-    
+
     config_class, model_class = RobertaConfig, RobertaDot
-    
+
     config = config_class.from_pretrained(args.query_encoder_dir)
-    model = model_class.from_pretrained(args.query_encoder_dir, config=config,)
+    model = model_class.from_pretrained(
+        args.query_encoder_dir,
+        config=config,
+    )
     index = load_index(args.index_path, use_cuda=args.gpu_search, faiss_gpu_index=0)
     if not args.gpu_search:
         faiss.omp_set_num_threads(32)
-    all_query_ids, all_search_results_scores, all_search_results_pids = \
-        query_inference(model, index, args)
+    all_query_ids, all_search_results_scores, all_search_results_pids = query_inference(
+        model, index, args
+    )
 
     if args.dataset == "doc":
-        pid2offset = pickle.load(open(args.pid2offset_path, 'rb'))
-        offset2pid = {v:f"D{k}" for k, v in pid2offset.items()}
+        pid2offset = pickle.load(open(args.pid2offset_path, "rb"))
+        offset2pid = {v: f"D{k}" for k, v in pid2offset.items()}
     else:
         assert args.dataset == "passage"
-        pid2offset = {i:i for i in range(8841823)}
-        offset2pid = {v:k for k, v in pid2offset.items()}
+        pid2offset = {i: i for i in range(8841823)}
+        offset2pid = {v: k for k, v in pid2offset.items()}
 
     os.makedirs(os.path.dirname(args.output_path), exist_ok=True)
-    
-    with open(args.output_path, 'w') as outputfile:
-        for qid, scores, poffsets in zip(all_query_ids, 
-                all_search_results_scores, all_search_results_pids):
+
+    with open(args.output_path, "w") as outputfile:
+        for qid, scores, poffsets in zip(
+            all_query_ids, all_search_results_scores, all_search_results_pids
+        ):
             for idx, (score, poffset) in enumerate(zip(scores, poffsets)):
-                rank = idx+1
+                rank = idx + 1
                 pid = offset2pid[poffset]
                 if args.output_format == "msmarco":
                     outputfile.write(f"{qid}\t{pid}\t{rank}\n")
                 else:
-                    assert args.output_format == "trec" 
+                    assert args.output_format == "trec"
                     index_name = os.path.basename(args.index_path)
-                    outputfile.write(f"{qid} Q0 {pid} {rank} {score} JPQ-{index_name}\n")
+                    outputfile.write(
+                        f"{qid} Q0 {pid} {rank} {score} JPQ-{index_name}\n"
+                    )
 
 
 if __name__ == "__main__":

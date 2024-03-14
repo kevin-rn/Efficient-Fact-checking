@@ -1,21 +1,22 @@
-import time
-import psutil
-from threading import Thread
 import math
-import nvidia_smi
-from pathlib import Path
 import os
+import time
+from pathlib import Path
+from threading import Thread
+
+import nvidia_smi
+import psutil
 
 # Week, days, hours, minutes and seconds.
 TIME_INTERVALS = (
-    ('w', 604800),
-    ('d', 86400),
-    ('h', 3600),
-    ('m', 60),
-    ('s', 1),
+    ("w", 604800),
+    ("d", 86400),
+    ("h", 3600),
+    ("m", 60),
+    ("s", 1),
 )
-SIZE_INTERVALS = ("B", "KiB", "MiB", "GiB", "TiB", 
-                  "PiB", "EiB", "ZiB", "YiB")
+SIZE_INTERVALS = ("B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB")
+
 
 def get_dir_size(dir_path) -> int:
     """
@@ -35,6 +36,7 @@ def get_dir_size(dir_path) -> int:
                 total_size += os.path.getsize(file_path)
     return total_size
 
+
 def format_size(total_size: int) -> str:
     """
     Format the size in bytes to a human-readable string.
@@ -51,6 +53,7 @@ def format_size(total_size: int) -> str:
     p = math.pow(1024, i)
     s = round(total_size / p, 2)
     return f"{s} {SIZE_INTERVALS[i]}"
+
 
 def format_time(seconds: int) -> str:
     """
@@ -71,12 +74,14 @@ def format_time(seconds: int) -> str:
         if value:
             seconds -= value * count
             result.append(f"{int(value)}{name}")
-    return ':'.join(result) if result else '> 1s'
+    return ":".join(result) if result else "> 1s"
+
 
 class ProcessMonitor(Thread):
     """
     Monitor the performance of a function, including elapsed time, data, output size, and memory usage.
     """
+
     def __init__(self, dataset=None, *args, **kwargs):
         """
         Initialises Thread class.
@@ -86,8 +91,7 @@ class ProcessMonitor(Thread):
         # Setup arrays to keep track of values
         self.cpu_usage = []
         self.mem_usage = []
-        self.GPU = [{"util": [], "mem": []}, 
-                    {"util": [], "mem": []}]
+        self.GPU = [{"util": [], "mem": []}, {"util": [], "mem": []}]
         self.measure_dataset = dataset
         # Path to directories
         root = Path(__file__).parent.parent.parent
@@ -101,7 +105,7 @@ class ProcessMonitor(Thread):
         # Setup GPU monitoring before running
         nvidia_smi.nvmlInit()
         self.deviceCount = nvidia_smi.nvmlDeviceGetCount()
-    
+
     def __enter__(self):
         return self
 
@@ -122,20 +126,22 @@ class ProcessMonitor(Thread):
                 handle = nvidia_smi.nvmlDeviceGetHandleByIndex(i)
                 util = nvidia_smi.nvmlDeviceGetUtilizationRates(handle)
                 mem = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
-                self.GPU[i]['util'].append(util.gpu)
-                self.GPU[i]['mem'].append(mem.used)
+                self.GPU[i]["util"].append(util.gpu)
+                self.GPU[i]["mem"].append(mem.used)
 
     def print_gpu_stats(self):
         """
         Helper function to print out GPU monitor stats.
         """
         for device_i in range(self.deviceCount):
-            util = self.GPU[device_i]['util']
-            mem = self.GPU[device_i]['mem']
+            util = self.GPU[device_i]["util"]
+            mem = self.GPU[device_i]["mem"]
             util_stats = max(util, default=0) - min(util, default=0)
             mem_stats = max(mem, default=0) - min(mem, default=0)
 
-            print(f"GPU {device_i} - Util {util_stats:.1f}% - Mem: {format_size(mem_stats)}")
+            print(
+                f"GPU {device_i} - Util {util_stats:.1f}% - Mem: {format_size(mem_stats)}"
+            )
 
     def __exit__(self, type, value, traceback):
         """
@@ -160,7 +166,9 @@ class ProcessMonitor(Thread):
 
         print(f"Elapsed time: {format_time(total_time)}")
         if self.measure_dataset:
-            print(f"datasplit: {format_size(total_data_folder)}, model data: {format_size(total_output_folder)}")
+            print(
+                f"datasplit: {format_size(total_data_folder)}, model data: {format_size(total_output_folder)}"
+            )
         print(f"CPU : {cpu:.1f}%")
         print(f"RAM : {format_size(mem)}")
         self.print_gpu_stats()

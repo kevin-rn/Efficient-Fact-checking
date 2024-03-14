@@ -1,12 +1,15 @@
 import argparse
-import os
-import json
-import string
 import collections
-import unicodedata
+import json
 import logging
+import os
+import string
+import unicodedata
+
 import nltk
+
 from src.tools.monitor_utils import ProcessMonitor
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -22,50 +25,69 @@ def main():
         "--sent_retrieve_range",
         default=5,
         type=int,
-        help="Top k retrieved documents to be used in sentence selection."
+        help="Top k retrieved documents to be used in sentence selection.",
     )
     parser.add_argument(
         "--data_dir",
-        default='data',
+        default="data",
         type=str,
     )
-    parser.add_argument(
-        "--dataset_name",
-        default='hover',
-        type=str
-    )
+    parser.add_argument("--dataset_name", default="hover", type=str)
     parser.add_argument(
         "--sent_retrieval_output_dir",
         default="exp1.0",
         type=str,
     )
-    parser.add_argument(
-        "--sent_retrieval_model_global_step",
-        default=1900,
-        type=int
-    )
+    parser.add_argument("--sent_retrieval_model_global_step", default=1900, type=int)
 
     args = parser.parse_args()
     with ProcessMonitor(dataset=args.dataset_name) as pm:
         pm.start()
 
         args.data_dir = os.path.join(args.data_dir, args.dataset_name)
-        hover_data = json.load(open(os.path.join(args.data_dir, args.dataset_name+'_'+args.data_split+'_release_v1.1.json')))
+        hover_data = json.load(
+            open(
+                os.path.join(
+                    args.data_dir,
+                    args.dataset_name + "_" + args.data_split + "_release_v1.1.json",
+                )
+            )
+        )
 
-        args.sent_retrieval_output_dir = os.path.join('out', args.dataset_name, args.sent_retrieval_output_dir, 'sent_retrieval', \
-            'checkpoint-'+str(args.sent_retrieval_model_global_step))
-        sent_retrieval_predictions = json.load(open(os.path.join(args.sent_retrieval_output_dir, args.data_split+'_predictions_.json')))
-        sent_retrieval_data = json.load(open(os.path.join(args.data_dir, 'sent_retrieval', 'hover_'+args.data_split+'_sent_retrieval.json')))
+        args.sent_retrieval_output_dir = os.path.join(
+            "out",
+            args.dataset_name,
+            args.sent_retrieval_output_dir,
+            "sent_retrieval",
+            "checkpoint-" + str(args.sent_retrieval_model_global_step),
+        )
+        sent_retrieval_predictions = json.load(
+            open(
+                os.path.join(
+                    args.sent_retrieval_output_dir,
+                    args.data_split + "_predictions_.json",
+                )
+            )
+        )
+        sent_retrieval_data = json.load(
+            open(
+                os.path.join(
+                    args.data_dir,
+                    "sent_retrieval",
+                    "hover_" + args.data_split + "_sent_retrieval.json",
+                )
+            )
+        )
 
         uid_to_wikidocuments = {}
         for e in sent_retrieval_data:
-            uid, claim, context = e['id'], e['claim'], e['context']
+            uid, claim, context = e["id"], e["claim"], e["context"]
             assert uid not in uid_to_wikidocuments
             uid_to_wikidocuments[uid] = [claim, context]
 
         uid_to_label = {}
         for e in hover_data:
-            uid, label = e['uid'], e['label']
+            uid, label = e["uid"], e["label"]
             assert uid not in uid_to_label
             uid_to_label[uid] = label
 
@@ -84,14 +106,23 @@ def main():
                 sent = wiki_titles_to_documents[_doc_title][sent_id]
                 context.append(sent)
 
-            context = ' '.join(context)
+            context = " ".join(context)
             label = uid_to_label[uid]
-            dp = {'id': uid, 'claim': claim, 'context': context, 'label': label}
+            dp = {"id": uid, "claim": claim, "context": context, "label": label}
             data_for_claim_verif.append(dp)
 
         logging.info("Saving prepared data ...")
-        with open(os.path.join(args.data_dir, 'claim_verification', 'hover_'+args.data_split+'_claim_verification.json'), 'w', encoding="utf-8") as f:
+        with open(
+            os.path.join(
+                args.data_dir,
+                "claim_verification",
+                "hover_" + args.data_split + "_claim_verification.json",
+            ),
+            "w",
+            encoding="utf-8",
+        ) as f:
             json.dump(data_for_claim_verif, f)
+
 
 if __name__ == "__main__":
     main()

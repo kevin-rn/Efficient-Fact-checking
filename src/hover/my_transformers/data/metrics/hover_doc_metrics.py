@@ -7,18 +7,16 @@ This file is expected to map question ID's to the model's predicted probability
 that a question is unanswerable.
 """
 
-
 import collections
 import json
 import logging
 import math
 import re
 import string
-import numpy as np
 import unicodedata
 
+import numpy as np
 from transformers.tokenization_bert import BasicTokenizer
-
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +48,8 @@ def get_tokens(s):
 
 
 def compute_exact(gold_toks, pred_toks):
-    gold_toks = [unicodedata.normalize('NFD', _t) for _t in gold_toks]
-    pred_toks = [unicodedata.normalize('NFD', _t) for _t in pred_toks]
+    gold_toks = [unicodedata.normalize("NFD", _t) for _t in gold_toks]
+    pred_toks = [unicodedata.normalize("NFD", _t) for _t in pred_toks]
     if len(gold_toks) != len(pred_toks):
         return 0
     for t in gold_toks:
@@ -61,8 +59,8 @@ def compute_exact(gold_toks, pred_toks):
 
 
 def compute_f1(gold_toks, pred_toks):
-    gold_toks = [unicodedata.normalize('NFD', _t) for _t in gold_toks]
-    pred_toks = [unicodedata.normalize('NFD', _t) for _t in pred_toks]
+    gold_toks = [unicodedata.normalize("NFD", _t) for _t in gold_toks]
+    pred_toks = [unicodedata.normalize("NFD", _t) for _t in pred_toks]
     common = collections.Counter(gold_toks) & collections.Counter(pred_toks)
     num_same = sum(common.values())
     if len(gold_toks) == 0 or len(pred_toks) == 0:
@@ -75,11 +73,13 @@ def compute_f1(gold_toks, pred_toks):
     f1 = (2 * precision * recall) / (precision + recall)
     return f1
 
+
 def allin(list1, list2):
     for e in list1:
         if e not in list2:
             return False
     return True
+
 
 def get_raw_scores(examples, preds):
     """
@@ -108,7 +108,10 @@ def get_raw_scores(examples, preds):
         r5, r8, r10 = 0, 0, 0
 
         prediction = preds[qas_id]
-        sorted_titles, sorted_probs = prediction['sorted_titles'], prediction['sorted_probs']
+        sorted_titles, sorted_probs = (
+            prediction["sorted_titles"],
+            prediction["sorted_probs"],
+        )
         top5, top8, top10 = sorted_titles[:5], sorted_titles[:8], sorted_titles[:10]
         if allin(sp_titles, top5):
             r5 = 1
@@ -116,7 +119,7 @@ def get_raw_scores(examples, preds):
             r8 = 1
         if allin(sp_titles, top10):
             r10 = 1
-        
+
         # pred_titles = []
         # for doc_idx in prediction:
         #     pred_titles.append(all_titles[doc_idx])
@@ -128,10 +131,9 @@ def get_raw_scores(examples, preds):
         r8_scores[qas_id] = r8
         r10_scores[qas_id] = r10
 
-        predicted_docs = prediction['predicted_docs']
+        predicted_docs = prediction["predicted_docs"]
         exact_scores[qas_id] = compute_exact(sp_titles, predicted_docs)
         f1_scores[qas_id] = compute_f1(sp_titles, predicted_docs)
-
 
     return r5_scores, r8_scores, r10_scores, exact_scores, f1_scores
 
@@ -210,12 +212,22 @@ def find_best_thresh_v2(preds, scores, na_probs, qid_to_has_ans):
             continue
         has_ans_score += scores[qid]
 
-    return 100.0 * best_score / len(scores), best_thresh, 1.0 * has_ans_score / has_ans_cnt
+    return (
+        100.0 * best_score / len(scores),
+        best_thresh,
+        1.0 * has_ans_score / has_ans_cnt,
+    )
 
 
-def find_all_best_thresh_v2(main_eval, preds, exact_raw, f1_raw, na_probs, qid_to_has_ans):
-    best_exact, exact_thresh, has_ans_exact = find_best_thresh_v2(preds, exact_raw, na_probs, qid_to_has_ans)
-    best_f1, f1_thresh, has_ans_f1 = find_best_thresh_v2(preds, f1_raw, na_probs, qid_to_has_ans)
+def find_all_best_thresh_v2(
+    main_eval, preds, exact_raw, f1_raw, na_probs, qid_to_has_ans
+):
+    best_exact, exact_thresh, has_ans_exact = find_best_thresh_v2(
+        preds, exact_raw, na_probs, qid_to_has_ans
+    )
+    best_f1, f1_thresh, has_ans_f1 = find_best_thresh_v2(
+        preds, f1_raw, na_probs, qid_to_has_ans
+    )
     main_eval["best_exact"] = best_exact
     main_eval["best_exact_thresh"] = exact_thresh
     main_eval["best_f1"] = best_f1
@@ -248,7 +260,9 @@ def find_best_thresh(preds, scores, na_probs, qid_to_has_ans):
 
 
 def find_all_best_thresh(main_eval, preds, exact_raw, f1_raw, na_probs, qid_to_has_ans):
-    best_exact, exact_thresh = find_best_thresh(preds, exact_raw, na_probs, qid_to_has_ans)
+    best_exact, exact_thresh = find_best_thresh(
+        preds, exact_raw, na_probs, qid_to_has_ans
+    )
     best_f1, f1_thresh = find_best_thresh(preds, f1_raw, na_probs, qid_to_has_ans)
 
     main_eval["best_exact"] = best_exact
@@ -319,7 +333,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
     def _strip_spaces(text):
         ns_chars = []
         ns_to_s_map = collections.OrderedDict()
-        for (i, c) in enumerate(text):
+        for i, c in enumerate(text):
             if c == " ":
                 continue
             ns_to_s_map[len(ns_chars)] = i
@@ -347,13 +361,17 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
 
     if len(orig_ns_text) != len(tok_ns_text):
         if verbose_logging:
-            logger.info("Length not equal after stripping spaces: '%s' vs '%s'", orig_ns_text, tok_ns_text)
+            logger.info(
+                "Length not equal after stripping spaces: '%s' vs '%s'",
+                orig_ns_text,
+                tok_ns_text,
+            )
         return orig_text
 
     # We then project the characters in `pred_text` back to `orig_text` using
     # the character-to-character alignment.
     tok_s_to_ns_map = {}
-    for (i, tok_index) in tok_ns_to_s_map.items():
+    for i, tok_index in tok_ns_to_s_map.items():
         tok_s_to_ns_map[tok_index] = i
 
     orig_start_position = None
@@ -438,14 +456,15 @@ def compute_predictions_logits(
         unique_id_to_result[result.unique_id] = result
 
     _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_logit", "end_logit"]
+        "PrelimPrediction",
+        ["feature_index", "start_index", "end_index", "start_logit", "end_logit"],
     )
 
     all_predictions = collections.OrderedDict()
 
-    for (example_index, example) in enumerate(all_examples):
+    for example_index, example in enumerate(all_examples):
         features = example_index_to_features[example_index]
-        assert len(features) == 1, (len(features))
+        assert len(features) == 1, len(features)
         prelim_predictions = []
         # keep track of the minimum score of null start+end of position 0
         score_null = 1000000  # large and positive
@@ -471,7 +490,13 @@ def compute_predictions_logits(
             if prob > 0.5:
                 pred_docs.append(all_titles[i])
 
-        all_predictions[example.qas_id] = {'all_titles': all_titles, 'all_probs': all_probs, 'sorted_titles': sorted_titles, 'sorted_probs': sorted_probs, 'predicted_docs': pred_docs}
+        all_predictions[example.qas_id] = {
+            "all_titles": all_titles,
+            "all_probs": all_probs,
+            "sorted_titles": sorted_titles,
+            "sorted_probs": sorted_probs,
+            "predicted_docs": pred_docs,
+        }
         # all_nbest_json[example.qas_id] = nbest_json
 
     with open(output_prediction_file, "w") as writer:
@@ -498,13 +523,14 @@ def compute_predictions_log_probs(
     tokenizer,
     verbose_logging,
 ):
-    """ XLNet write prediction logic (more complex than Bert's).
-        Write final predictions to the json file and log-odds of null if needed.
+    """XLNet write prediction logic (more complex than Bert's).
+    Write final predictions to the json file and log-odds of null if needed.
 
-        Requires utils_squad_evaluate.py
+    Requires utils_squad_evaluate.py
     """
     _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
-        "PrelimPrediction", ["feature_index", "start_index", "end_index", "start_log_prob", "end_log_prob"]
+        "PrelimPrediction",
+        ["feature_index", "start_index", "end_index", "start_log_prob", "end_log_prob"],
     )
 
     _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
@@ -526,14 +552,14 @@ def compute_predictions_log_probs(
     all_nbest_json = collections.OrderedDict()
     scores_diff_json = collections.OrderedDict()
 
-    for (example_index, example) in enumerate(all_examples):
+    for example_index, example in enumerate(all_examples):
         features = example_index_to_features[example_index]
 
         prelim_predictions = []
         # keep track of the minimum score of null start+end of position 0
         score_null = 1000000  # large and positive
 
-        for (feature_index, feature) in enumerate(features):
+        for feature_index, feature in enumerate(features):
             result = unique_id_to_result[feature.unique_id]
 
             cur_null_score = result.cls_logits
@@ -578,7 +604,9 @@ def compute_predictions_log_probs(
                     )
 
         prelim_predictions = sorted(
-            prelim_predictions, key=lambda x: (x.start_log_prob + x.end_log_prob), reverse=True
+            prelim_predictions,
+            key=lambda x: (x.start_log_prob + x.end_log_prob),
+            reverse=True,
         )
 
         seen_predictions = {}
@@ -615,7 +643,9 @@ def compute_predictions_log_probs(
             else:
                 do_lower_case = tokenizer.do_lowercase_and_remove_accent
 
-            final_text = get_final_text(tok_text, orig_text, do_lower_case, verbose_logging)
+            final_text = get_final_text(
+                tok_text, orig_text, do_lower_case, verbose_logging
+            )
 
             if final_text in seen_predictions:
                 continue
@@ -623,13 +653,19 @@ def compute_predictions_log_probs(
             seen_predictions[final_text] = True
 
             nbest.append(
-                _NbestPrediction(text=final_text, start_log_prob=pred.start_log_prob, end_log_prob=pred.end_log_prob)
+                _NbestPrediction(
+                    text=final_text,
+                    start_log_prob=pred.start_log_prob,
+                    end_log_prob=pred.end_log_prob,
+                )
             )
 
         # In very rare edge cases we could have no valid predictions. So we
         # just create a nonce prediction in this case to avoid failure.
         if not nbest:
-            nbest.append(_NbestPrediction(text="", start_log_prob=-1e6, end_log_prob=-1e6))
+            nbest.append(
+                _NbestPrediction(text="", start_log_prob=-1e6, end_log_prob=-1e6)
+            )
 
         total_scores = []
         best_non_null_entry = None
@@ -641,7 +677,7 @@ def compute_predictions_log_probs(
         probs = _compute_softmax(total_scores)
 
         nbest_json = []
-        for (i, entry) in enumerate(nbest):
+        for i, entry in enumerate(nbest):
             output = collections.OrderedDict()
             output["text"] = entry.text
             output["probability"] = probs[i]

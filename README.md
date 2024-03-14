@@ -3,11 +3,15 @@
 
 ## Quick Links
 
+- [Efficient Fact-checking through Supporting Fact Extraction from Large Data Collections](#efficient-fact-checking-through-supporting-fact-extraction-from-large-data-collections)
+  - [Quick Links](#quick-links)
   - [Folder structure](#folder-structure)
+  - [Dependencies](#dependencies)
   - [Setup](#setup)
   - [Pipeline](#pipeline)
   - [Citation](#citation)
   - [Referenced Work](#referenced-work)
+  - [Coding Practices](#coding-practices)
 
 
 ## Folder structure
@@ -51,6 +55,16 @@ The (sub)folders of data, model, and out are instantiated when setting up the pr
 * out: will contain the model checkpoints for each HoVer pipeline stage as well as the predictions for each checkpoint.
 * scripts: Bash scripts for running the three retrieval pipeline settings (bm25, faiss, jpq) as well as shell scripts for setting up data folder and downloading wikipedia dump.
 * src: Contains the main hover pipeline, retrieval folder containing the retrieval methods, tools for misecellenous helper code and forked [wikiextractor](https://github.com/qipeng/wikiextractor) for processing the wikipedia dump.
+
+## Dependencies
+For installing all dependencies, we recommend using Anaconda and installing the ``grounding_env.yml`` file. Please ensure that the environment is named "grounding" as the scripts will explicitly attempt to activate it. Alternatively, rename all instances in the scripts folder.
+
+Since HoVer has a somewhat outdated codebase, and to avoid breaking existing working code, a separate environment YAML file, ``hover_env.yml``, has been created with older dependencies. Similarly to the "grounding" environment, ensure that this environment is named "hover".
+
+```console
+foo@bar:~$ conda env create  --file=grounding_env.yml
+foo@bar:~$ conda env create  --file=hover_env.yml
+```
 
 ## Setup
 The intial first step is creating the necessary folders to hold data to run the pipeline:
@@ -229,41 +243,5 @@ Below follow the work from which we utilised the existing code base and modified
 *"WikiExtractor" ([code](https://github.com/qipeng/wikiextractor))
 
 ## Coding Practices
-
-### Auto-formatting code
-1. Install `black`: ```pip install black``` or ```conda install black```
-2. In your IDE: Enable formatting on save.
-3. Install `isort`: ```pip install isort``` or ```conda install isort```
-4. In your IDE: Enable sorting import on save.
-
-In VS Code, you can do this using the following config:
-```json
-{
-    "editor.formatOnSave": true,
-    "editor.codeActionsOnSave": {
-        "source.organizeImports": true
-    }
-}
-```
-
-### Type hints
-Use [type hints](https://docs.python.org/3/library/typing.html) for __everything__! No exceptions.
-
-### Docstrings
-Write a docstring for __every__ function (except the main function). We use the [Google format](https://github.com/NilsJPWerner/autoDocstring/blob/HEAD/docs/google.md). In VS Code, you can use [autoDocstring](https://marketplace.visualstudio.com/items?itemName=njpwerner.autodocstring).
-
-### Example
-```python
-def sum(a: float, b: float) -> float:
-    """Compute the sum of a and b.
-
-    Args:
-        a (float): First number.
-        b (float): Second number.
-    
-    Returns:
-        float: The sum of a and b.
-    """
-
-    return a + b
-```
+To ensure consistent code style and readability, this project uses auto-formatting tools such as black and isort.
+Additionally for readability and reproducibility purposes, we use [type hints](https://docs.python.org/3/library/typing.html) for majority of the functions we created and use docstrings following the [Google format](https://github.com/NilsJPWerner/autoDocstring/blob/HEAD/docs/google.md).

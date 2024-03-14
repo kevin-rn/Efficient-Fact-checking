@@ -27,16 +27,22 @@
 Extracts a single page from a Wikipedia dump file.
 """
 
-import sys, os.path
-import re, random
 import argparse
-from itertools import izip
-import logging, traceback
+import bz2
+import gzip
+import logging
+import multiprocessing
+import os.path
+import random
+import re
+import sys
+import threading
+import traceback
 import urllib
-import bz2, gzip
-from htmlentitydefs import name2codepoint
-import Queue, threading, multiprocessing
+from itertools import izip
 
+import Queue
+from htmlentitydefs import name2codepoint
 
 # Program version
 version = '2.9'

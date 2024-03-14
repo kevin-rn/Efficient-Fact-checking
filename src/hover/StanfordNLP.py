@@ -1,25 +1,28 @@
-'''
+"""
 A sample code usage of the python package stanfordcorenlp to access a Stanford CoreNLP server.
 Written as part of the blog post: https://www.khalidalnajjar.com/how-to-setup-and-use-stanford-corenlp-server-with-python/ 
-'''
+"""
+
+import json
+import logging
 
 from stanfordcorenlp import StanfordCoreNLP
-import logging
-import json
+
 
 class StanfordNLP:
-    def __init__(self, host='http://localhost', port=9000):
-        self.nlp = StanfordCoreNLP(host, port=port,
-                                   timeout=30000)  # , quiet=False, logging_level=logging.DEBUG)
+    def __init__(self, host="http://localhost", port=9000):
+        self.nlp = StanfordCoreNLP(
+            host, port=port, timeout=30000
+        )  # , quiet=False, logging_level=logging.DEBUG)
         self.props = {
-            'annotators': 'tokenize,ssplit',
-            'pipelineLanguage': 'en',
-            'outputFormat': 'json'
+            "annotators": "tokenize,ssplit",
+            "pipelineLanguage": "en",
+            "outputFormat": "json",
         }
 
     def word_tokenize(self, sentence):
         return self.nlp.word_tokenize(sentence)
-    
+
     def sent_tokenize(self, para):
         return self.nlp.sent_tokenize(para)
 
@@ -42,18 +45,18 @@ class StanfordNLP:
     def tokens_to_dict(_tokens):
         tokens = defaultdict(dict)
         for token in _tokens:
-            tokens[int(token['index'])] = {
-                'word': token['word'],
-                'lemma': token['lemma'],
-                'pos': token['pos'],
-                'ner': token['ner']
+            tokens[int(token["index"])] = {
+                "word": token["word"],
+                "lemma": token["lemma"],
+                "pos": token["pos"],
+                "ner": token["ner"],
             }
         return tokens
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sNLP = StanfordNLP()
-    text = 'A blog post using Stanford CoreNLP Server. Visit www.khalidalnajjar.com for more details.'
+    text = "A blog post using Stanford CoreNLP Server. Visit www.khalidalnajjar.com for more details."
     print("Annotate:", sNLP.annotate(text))
     print("POS:", sNLP.pos(text))
     print("Tokens:", sNLP.word_tokenize(text))

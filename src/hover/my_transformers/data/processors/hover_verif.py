@@ -5,15 +5,13 @@ from functools import partial
 from multiprocessing import Pool, cpu_count
 
 import numpy as np
-from tqdm import tqdm
-
-from transformers.tokenization_bert import whitespace_tokenize
-from transformers.data.processors.utils import DataProcessor
-
 import torch
 from torch.utils.data import TensorDataset
+from tqdm import tqdm
+from transformers.data.processors.utils import DataProcessor
+from transformers.tokenization_bert import whitespace_tokenize
 
-NLI_LABEL_DICT = {'SUPPORTED': 0, 'NOT_SUPPORTED': 1}
+NLI_LABEL_DICT = {"SUPPORTED": 0, "NOT_SUPPORTED": 1}
 
 
 logger = logging.getLogger(__name__)
@@ -25,19 +23,23 @@ def _is_whitespace(c):
     return False
 
 
-def hover_convert_example_to_features(example, max_seq_length, doc_stride, max_query_length, is_training):
+def hover_convert_example_to_features(
+    example, max_seq_length, doc_stride, max_query_length, is_training
+):
     features = []
     all_doc_tokens = []
     doc_tokens = example.doc_tokens
-    for (j, token) in enumerate(doc_tokens):
+    for j, token in enumerate(doc_tokens):
         sub_tokens = tokenizer.tokenize(token)
         for sub_token in sub_tokens:
             all_doc_tokens.append(sub_token)
     if len(all_doc_tokens) == 0:
-        all_doc_tokens = ['empty', '.']
+        all_doc_tokens = ["empty", "."]
     spans = []
 
-    truncated_claim = tokenizer.encode(example.claim_text, add_special_tokens=False, max_length=max_query_length)
+    truncated_claim = tokenizer.encode(
+        example.claim_text, add_special_tokens=False, max_length=max_query_length
+    )
     sequence_added_tokens = (
         tokenizer.max_len - tokenizer.max_len_single_sentence + 1
         if "roberta" in str(type(tokenizer)) or "camembert" in str(type(tokenizer))
@@ -56,7 +58,10 @@ def hover_convert_example_to_features(example, max_seq_length, doc_stride, max_q
         max_length=max_seq_length,
         return_overflowing_tokens=True,
         pad_to_max_length=True,
-        stride=max_seq_length - doc_stride - len(truncated_claim) - sequence_pair_added_tokens,
+        stride=max_seq_length
+        - doc_stride
+        - len(truncated_claim)
+        - sequence_pair_added_tokens,
         truncation_strategy="only_second",
         return_token_type_ids=True,
     )
@@ -68,10 +73,14 @@ def hover_convert_example_to_features(example, max_seq_length, doc_stride, max_q
 
     if tokenizer.pad_token_id in encoded_dict["input_ids"]:
         if tokenizer.padding_side == "right":
-            non_padded_ids = encoded_dict["input_ids"][: encoded_dict["input_ids"].index(tokenizer.pad_token_id)]
+            non_padded_ids = encoded_dict["input_ids"][
+                : encoded_dict["input_ids"].index(tokenizer.pad_token_id)
+            ]
         else:
             last_padding_id_position = (
-                len(encoded_dict["input_ids"]) - 1 - encoded_dict["input_ids"][::-1].index(tokenizer.pad_token_id)
+                len(encoded_dict["input_ids"])
+                - 1
+                - encoded_dict["input_ids"][::-1].index(tokenizer.pad_token_id)
             )
             non_padded_ids = encoded_dict["input_ids"][last_padding_id_position + 1 :]
 
@@ -132,7 +141,7 @@ def hover_convert_example_to_features(example, max_seq_length, doc_stride, max_q
             example_index=0,
             unique_id=0,
             tokens=span["tokens"],
-            label=nli_label
+            label=nli_label,
         )
     )
     return features
@@ -144,8 +153,16 @@ def hover_convert_example_to_features_init(tokenizer_for_convert):
 
 
 def hover_convert_examples_to_features(
-    examples, tokenizer, max_seq_length, max_doc_num, max_sent_num, doc_stride, max_query_length, is_training, \
-    return_dataset=False, threads=1
+    examples,
+    tokenizer,
+    max_seq_length,
+    max_doc_num,
+    max_sent_num,
+    doc_stride,
+    max_query_length,
+    is_training,
+    return_dataset=False,
+    threads=1,
 ):
     """
     Converts a list of examples into a list of features that can be directly given as input to a model.
@@ -180,7 +197,11 @@ def hover_convert_examples_to_features(
     examples = examples
     features = []
     threads = min(threads, cpu_count())
-    with Pool(threads, initializer=hover_convert_example_to_features_init, initargs=(tokenizer,)) as p:
+    with Pool(
+        threads,
+        initializer=hover_convert_example_to_features_init,
+        initargs=(tokenizer,),
+    ) as p:
         annotate_ = partial(
             hover_convert_example_to_features,
             max_seq_length=max_seq_length,
@@ -198,7 +219,9 @@ def hover_convert_examples_to_features(
     new_features = []
     unique_id = 1000000000
     example_index = 0
-    for example_features in tqdm(features, total=len(features), desc="add example index and unique id"):
+    for example_features in tqdm(
+        features, total=len(features), desc="add example index and unique id"
+    ):
         if not example_features:
             continue
         for example_feature in example_features:
@@ -212,13 +235,20 @@ def hover_convert_examples_to_features(
     if return_dataset == "pt":
         # Convert to Tensors and build dataset
         all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-        all_attention_masks = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
-        all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+        all_attention_masks = torch.tensor(
+            [f.attention_mask for f in features], dtype=torch.long
+        )
+        all_token_type_ids = torch.tensor(
+            [f.token_type_ids for f in features], dtype=torch.long
+        )
         all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
 
         if not is_training:
             dataset = TensorDataset(
-                all_input_ids, all_attention_masks, all_token_type_ids, all_example_index,
+                all_input_ids,
+                all_attention_masks,
+                all_token_type_ids,
+                all_example_index,
             )
         else:
             all_labels = torch.tensor([f.label for f in features], dtype=torch.long)
@@ -233,7 +263,9 @@ def hover_convert_examples_to_features(
         return features, dataset
     elif return_dataset == "tf":
         if not is_tf_available():
-            raise RuntimeError("TensorFlow must be installed to return a TensorFlow dataset.")
+            raise RuntimeError(
+                "TensorFlow must be installed to return a TensorFlow dataset."
+            )
 
         def gen():
             for ex in features:
@@ -255,7 +287,11 @@ def hover_convert_examples_to_features(
         return tf.data.Dataset.from_generator(
             gen,
             (
-                {"input_ids": tf.int32, "attention_mask": tf.int32, "token_type_ids": tf.int32},
+                {
+                    "input_ids": tf.int32,
+                    "attention_mask": tf.int32,
+                    "token_type_ids": tf.int32,
+                },
                 {
                     "start_position": tf.int64,
                     "end_position": tf.int64,
@@ -299,7 +335,10 @@ class HoverProcessor(DataProcessor):
         else:
             answers = [
                 {"answer_start": start.numpy(), "text": text.numpy().decode("utf-8")}
-                for start, text in zip(tensor_dict["answers"]["answer_start"], tensor_dict["answers"]["text"])
+                for start, text in zip(
+                    tensor_dict["answers"]["answer_start"],
+                    tensor_dict["answers"]["text"],
+                )
             ]
 
             answer = None
@@ -337,7 +376,9 @@ class HoverProcessor(DataProcessor):
 
         examples = []
         for tensor_dict in tqdm(dataset):
-            examples.append(self._get_example_from_tensor_dict(tensor_dict, evaluate=evaluate))
+            examples.append(
+                self._get_example_from_tensor_dict(tensor_dict, evaluate=evaluate)
+            )
 
         return examples
 
@@ -353,10 +394,14 @@ class HoverProcessor(DataProcessor):
             data_dir = ""
 
         if self.train_file is None:
-            raise ValueError("SquadProcessor should be instantiated via SquadV1Processor or SquadV2Processor")
+            raise ValueError(
+                "SquadProcessor should be instantiated via SquadV1Processor or SquadV2Processor"
+            )
         print(os.path.join(data_dir, self.train_file if filename is None else filename))
         with open(
-            os.path.join(data_dir, self.train_file if filename is None else filename), "r", encoding="utf-8"
+            os.path.join(data_dir, self.train_file if filename is None else filename),
+            "r",
+            encoding="utf-8",
         ) as reader:
             input_data = json.load(reader)
         return self._create_examples(input_data, "train")
@@ -373,10 +418,14 @@ class HoverProcessor(DataProcessor):
             data_dir = ""
 
         if self.dev_file is None:
-            raise ValueError("SquadProcessor should be instantiated via SquadV1Processor or SquadV2Processor")
+            raise ValueError(
+                "SquadProcessor should be instantiated via SquadV1Processor or SquadV2Processor"
+            )
 
         with open(
-            os.path.join(data_dir, self.dev_file if filename is None else filename), "r", encoding="utf-8"
+            os.path.join(data_dir, self.dev_file if filename is None else filename),
+            "r",
+            encoding="utf-8",
         ) as reader:
             input_data = json.load(reader)
         return self._create_examples(input_data, "dev")
