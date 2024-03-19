@@ -4,7 +4,7 @@ set -e
 eval "$(conda shell.bash hook)"
 claim_name=$1
 setting=$2
-hover_stage=$3
+hover_stage=${3:-"claim_verification"}
 retrieval_mode=${4:-"cpu"}
 folder_name=$(echo "$setting" | sed 's/enwiki-[0-9]*-//')
 

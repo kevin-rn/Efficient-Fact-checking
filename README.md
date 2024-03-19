@@ -75,7 +75,7 @@ foo@bar:~$ ./scripts/download_data.sh
 
 For our experiments we used the following corpus and claim data:
 * processed [2017 English wikipedia dump](https://nlp.stanford.edu/projects/hotpotqa/enwiki-20171001-pages-meta-current-withlinks-processed.tar.bz2) provided by [HotPotQA](https://hotpotqa.github.io/wiki-readme.html) with the [HoVer](https://github.com/hover-nlp/hover/tree/main/data/hover) as claim data.
-* processed [2023 English Wikipedia dump](https://dumps.wikimedia.org/enwiki/20231201/) from `https://dumps.wikimedia.org/` with the [WiCE](https://github.com/ryokamoi/wice/tree/main/data/entailment_retrieval/claim) as claim data.
+* processed [2023 English Wikipedia dump](https://dumps.wikimedia.org/enwiki/20231201/) from [Wikimedia](https://dumps.wikimedia.org/) with the [WiCE](https://github.com/ryokamoi/wice/tree/main/data/entailment_retrieval/claim) as claim data.
 
 ```json
 { ... },
@@ -202,14 +202,27 @@ For running the entire HoVer pipeline following our three of adjustments, we hav
 
 ```console
 foo@bar:~$ ./scripts/run_bm25_pipeline.sh CLAIM_NAME SETTING BM25_TYPE
-Note: Requires Elasticsearch instance to be run in the background. Additionally when using BM25_TYPE 'original', requires sentence splitting to be in-place similar to the supporting fact extraction part
-
+```
+Requires Elasticsearch instance to be run in the background. 
+```console
+# start process
+foo@bar:~$  ./elasticsearch-8.11.3/bin/elasticsearch -d -p pid 
+# kill process
+foo@bar:~$  pkill -F ./elasticsearch-8.11.3/pid
+```
+Additionally when using BM25_TYPE 'original', requires sentence splitting to be in-place similar to the supporting fact extraction part
+```console
 foo@bar:~$ ./scripts/run_faiss_pipeline.sh CLAIM_NAME SETTING HOVER_STAGE RETRIEVAL_MODE
-Note: Pre-computing the vector embeddings can speed-up the index construction part. Requires the Sentence tranformers model all-MiniLM-L6-v2.
+```
+Pre-computing the vector embeddings can speed-up the index construction part. Requires the Sentence tranformers model all-MiniLM-L6-v2.
 
+```
 foo@bar:~$ ./scripts/run_compress_pipeline.sh CLAIM_NAME SETTING HOVER_STAGE RETRIEVAL_MODE SUBVECTORS
-Note: Training encoders from scratch is possible, by passing the ensuring there is no encoders folder (setting name) in the data/jpq_doc folder.
+```
+Training encoders from scratch is possible, by passing the ensuring there is no encoders folder (setting name) in the ``data/jpq_doc`` folder. For more information go to ``src/retrieval``.
 
+Explanation arguments:
+```
 arguments:
   CLAIM_NAME            Name of the claim dataset to run for [hover | wice]
   SETTING               Name of the data corpus to run for, in other words the name of the database file
@@ -219,12 +232,9 @@ arguments:
                         selection (sent_select)
   RETRIEVAL_MODE        Perform cpu or gpu retrieval (default: cpu)
   SUBVECTORS            Amount of subvectors to use (default: 96)
-
-
-
 ```
-For more information on retrieval methods, read the README inside ``src/retrieval``.
-For more information on each HoVer stage, read the README inside ``src/hover``.
+For more information on retrieval methods, read the [README](https://github.com/kevin-rn/Grounding-LM/tree/main/src/retrieval) inside ``src/retrieval``.
+For more information on each HoVer stage, read the [README](https://github.com/kevin-rn/Grounding-LM/tree/main/src/hover) inside ``src/hover``.
 
 ## Citation
 

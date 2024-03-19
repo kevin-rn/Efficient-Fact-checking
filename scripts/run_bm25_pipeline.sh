@@ -4,7 +4,7 @@ set -e
 eval "$(conda shell.bash hook)"
 claim_name=$1
 setting=$2
-bm25_type=$3
+bm25_type=${3:-"rerank"}
 folder_name=$(echo "$setting" | sed 's/enwiki-[^-]*-//')
 
 echo -e "BM25"

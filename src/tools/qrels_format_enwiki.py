@@ -34,11 +34,13 @@ parser.add_argument(
     help="[enwiki-2017-original | enwiki-2023-cite]",
 )
 parser.add_argument(
-    "--first_paragraph_only",
+    "--first_para_only",
     action="store_true",
     help="For given experiment setting, only use the first available paragraph text",
 )
 args = parser.parse_args()
+
+SUFFIX = "-first" if args.first_para_only else "-full"
 
 
 def jpq_data_format(file_path, data_location, text_key) -> List:
@@ -85,7 +87,7 @@ def format_docs_data(jpq_path) -> Tuple[Dict, List]:
         Tuple[Dict, List]: A tuple containing lookup dictionary and document IDs.
     """
     doc_loc = os.path.join("data", f"enwiki_files", args.setting)
-    tsv_loc = os.path.join(jpq_path, args.setting + "-docs.tsv")
+    tsv_loc = os.path.join(jpq_path, args.setting + SUFFIX + "-docs.tsv")
     if os.path.isfile(tsv_loc):
         tsv_file = pd.read_csv(
             tsv_loc, delimiter="\t", names=["doc_id", "url", "doc_title", "doc_text"]

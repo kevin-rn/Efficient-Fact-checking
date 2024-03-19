@@ -17,8 +17,6 @@ from text_processing_utils import (remove_html_tags, search_file_paths,
                                    tqdm_joblib)
 from tqdm import tqdm
 
-### Argument parsing
-### E.g. python data_processing.py --setting=cite --split_sent --first_para_only --pre_compute_embed
 parser = ArgumentParser()
 parser.add_argument(
     "--setting",

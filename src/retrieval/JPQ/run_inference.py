@@ -64,11 +64,6 @@ parser.add_argument(
     "--use_gpu", action="store_true", help="Use Faiss-gpu instead of cpu"
 )
 
-parser.add_argument(
-    "--first_paragraph_only",
-    action="store_true",
-    help="For given experiment setting, only use the first available paragraph text",
-)
 
 parser.add_argument(
     "--sent_select",
@@ -78,8 +73,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-db_suffix = "-first.db" if args.first_paragraph_only else "-full.db"
-DB_PATH = os.path.join("data", "db_files", args.setting + db_suffix)
+DB_PATH = os.path.join("data", "db_files", args.setting + ".db")
 
 
 def load_documents() -> Dict[str, str]:
@@ -90,7 +84,10 @@ def load_documents() -> Dict[str, str]:
         dict: A dictionary containing document IDs as keys and document titles and texts as values.
     """
     tsv_path = os.path.join(
-        "data", "doc", f"enwiki-{args.dataset_name}-dataset", args.setting + "-docs.tsv"
+        "data",
+        "jpq_doc",
+        f"enwiki-{args.dataset_name}-dataset",
+        args.setting + "-docs.tsv",
     )
     # Check if preprocessing happened, otherwise use the HoVer db file
     if os.path.isfile(tsv_path):

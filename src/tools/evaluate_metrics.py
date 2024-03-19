@@ -2,7 +2,7 @@ import argparse
 import json
 import os
 import re
-from typing import Any, List
+from typing import Any, Dict, List
 
 import pandas as pd
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
@@ -39,7 +39,7 @@ def read_data(predict_file: str, label_file: str) -> Any:
     return true_labels, pred_labels
 
 
-def metrics(true_labels: List[int], pred_labels: List[int]) -> None:
+def metrics(true_labels: List[int], pred_labels: List[int]) -> Dict[str, float]:
     """
     Prints out metrics of accuracy, f1-score, precision-score and recall-score.
 
@@ -81,7 +81,10 @@ def main():
     claim_prediction_dir = os.path.join(
         "out", args.dataset_name, args.out_dir, "claim_verification"
     )
-    checkpoints = [x[0] for x in os.walk(claim_prediction_dir) if "checkpoint" in x[0]]
+    checkpoints = sorted(
+        [x[0] for x in os.walk(claim_prediction_dir) if "checkpoint" in x[0]],
+        key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
+    )
     labels = os.path.join(
         "data", args.dataset_name, f"{args.dataset_name}_dev_release_v1.1.json"
     )
@@ -98,13 +101,15 @@ def main():
                 checkpoint_name,
                 ",\t".join([f"{k}: {v:.2f}%" for k, v in check_results.items()]),
             )
+    if args.verbose:
+        print("\n")
 
     if results:
-        key_metric = "acc" if args.dataset_name == "hover" else "f1_weighted"
-        high_score = max(results, key=lambda x: x[key_metric])
+        high_scores = sorted(results, key=lambda x: x["f1_weighted"], reverse=True)[:5]
+        high_score = max(high_scores, key=lambda x: x["f1_macro"])
         checkpoint = checkpoints[results.index(high_score)]
         print(
-            f"\n{checkpoint.split(os.path.sep)[-1]}",
+            f"{checkpoint.split(os.path.sep)[-1]}",
             ",    ".join([f"{k}: {v:.2f}%" for k, v in high_score.items()]),
         )
     else:

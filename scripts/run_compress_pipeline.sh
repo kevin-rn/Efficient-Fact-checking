@@ -4,11 +4,12 @@ set -e
 eval "$(conda shell.bash hook)"
 claim_name=$1
 setting=$2
-hover_stage=$3
+hover_stage=${3:-"claim_verification"}
 retrieval_mode=${4:-"cpu"}
 subvectors=${5:-96}
 
 folder_name=$(echo "$setting" | sed 's/enwiki-[0-9]*-//')
+model_setting=$(echo "$setting" | cut -d '-' -f1,2)
 
 conda activate grounding
 
@@ -24,7 +25,6 @@ python -m src.tools.qrels_format_enwiki \
   --dataset_name $claim_name \
   --setting $setting
 
-model_setting=$(echo "$setting" | sed 's/-[^-]*$//')
 if ! [ -d "./models/$model_setting" ]; 
   then
     # Skip JPQ model training if encoders already exists
