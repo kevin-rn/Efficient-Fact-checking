@@ -1,5 +1,5 @@
 # Efficient Fact-checking through Supporting Fact Extraction from Large Data Collections
-
+This study aims to address the gap in existing work that primarily focuses on the fact-verification part of the fact-checking process rather than evidence retrieval, leading to scalability issues for practical applications. Here we make use of various methods for identifying and indexing supporting facts and enhancing the retrieval phase of the fact-checking pipeline. More information about our work can be found [here]().
 
 ## Quick Links
 
