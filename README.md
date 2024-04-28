@@ -7,7 +7,6 @@ This study aims to address the gap in existing work that primarily focuses on th
   - [Quick Links](#quick-links)
   - [Folder structure](#folder-structure)
   - [Dependencies](#dependencies)
-  - [Dependencies](#dependencies-1)
   - [Setup](#setup)
   - [Pipeline](#pipeline)
   - [Citation](#citation)
