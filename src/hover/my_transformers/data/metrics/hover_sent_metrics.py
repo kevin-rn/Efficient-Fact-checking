@@ -465,11 +465,21 @@ def compute_predictions_logits(
         all_probs = [[float(p) for p in list(prob)] for prob in list(probs)]
         all_titles = list(example.titles)
 
-        pred_sp = []
-        for i, probs in enumerate(all_probs):
+
+        # pred_sp = []
+        # for i, probs in enumerate(all_probs):
+        #     for j, prob in enumerate(probs):
+                # if prob > 0.5:
+                    # pred_sp.append([all_titles[i], j])
+
+        flat_probs = []
+        min_length = min(len(all_titles), len(all_probs))
+        for i in range(min_length):
+            probs = all_probs[i]
             for j, prob in enumerate(probs):
-                if prob > 0.5:
-                    pred_sp.append([all_titles[i], j])
+                flat_probs.append((all_titles[i], j, prob))
+        flat_probs.sort(key=lambda x: x[2], reverse=True)
+        pred_sp = [[title, index] for title, index, prob in flat_probs[:10]]
         # print(pred_sp)
 
         # sorted_idx = list(np.lexsort((np.arange(len(logits)), -probs)))

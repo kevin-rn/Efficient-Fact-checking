@@ -18,7 +18,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--setting", type=str, default=None, help="Name of the database files"
+    "--setting", 
+    type=str, 
+    default=None,
+    help="Name of the database files"
 )
 args = parser.parse_args()
 

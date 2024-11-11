@@ -12,4 +12,5 @@ python3 -m src.hover.run_hover \
 --output_dir exp1.0 \
 --max_seq_length 200  \
 --max_query_length 60  \
---ckpt_to_evaluate $checkpoint_number
+--ckpt_to_evaluate $checkpoint_number \
+--predict_file hover_dev_claim_verification.json

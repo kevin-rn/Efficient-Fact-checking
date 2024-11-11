@@ -24,12 +24,7 @@ encoder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device=d
 class Dataset:
 
     def __init__(
-        self,
-        dataset,
-        data_path="./data/unq",
-        normalize=False,
-        random_state=50,
-        **kwargs,
+        self, dataset, data_path="./data/unq", normalize=False, random_state=50, **kwargs
     ):
         """
         Dataset is a bunch of tensors with all the learning and evaluation data required for an experiment

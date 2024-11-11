@@ -5,7 +5,7 @@ import re
 from typing import Any, Dict, List
 
 import pandas as pd
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, classification_report
 
 
 def read_data(predict_file: str, label_file: str) -> Any:
@@ -54,6 +54,8 @@ def metrics(true_labels: List[int], pred_labels: List[int]) -> Dict[str, float]:
     prec_macro, rec_macro, f1_macro, _ = precision_recall_fscore_support(
         true_labels, pred_labels, average="macro", zero_division=0
     )
+
+    print(classification_report(true_labels, pred_labels))
     results = {
         "acc": acc,
         "f1_weighted": f1_weighted,
@@ -83,7 +85,7 @@ def main():
     )
     checkpoints = sorted(
         [x[0] for x in os.walk(claim_prediction_dir) if "checkpoint" in x[0]],
-        key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
+        key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0
     )
     labels = os.path.join(
         "data", args.dataset_name, f"{args.dataset_name}_dev_release_v1.1.json"

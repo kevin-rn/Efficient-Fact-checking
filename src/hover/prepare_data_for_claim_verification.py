@@ -103,8 +103,10 @@ def main():
 
             context = []
             for _doc_title, sent_id in predicted_sp:
-                sent = wiki_titles_to_documents[_doc_title][sent_id]
-                context.append(sent)
+                if len(wiki_titles_to_documents[_doc_title]) > sent_id:
+                    sent = wiki_titles_to_documents[_doc_title][sent_id]
+                    context.append(sent)
+        
 
             context = " ".join(context)
             label = uid_to_label[uid]

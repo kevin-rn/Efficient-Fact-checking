@@ -42,7 +42,6 @@ args = parser.parse_args()
 
 SUFFIX = "-first" if args.first_para_only else "-full"
 
-
 def jpq_data_format(file_path, data_location, text_key) -> List:
     """
     Format data from ENWIKI bz2 files to JPQ format.

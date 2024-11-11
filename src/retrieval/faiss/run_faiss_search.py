@@ -20,7 +20,10 @@ from .faiss_search import FaissSearch
 parser = ArgumentParser()
 
 parser.add_argument(
-    "--setting", type=str, default=None, help="Name of the setting to run"
+    "--setting", 
+    type=str, 
+    default=None, 
+    help="Name of the setting to run"
 )
 
 parser.add_argument(
@@ -38,7 +41,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--rerank_mode", default="none", type=str, help="[none | within | between]"
+    "--rerank_mode", 
+    default="none", 
+    type=str, 
+    help="[none | within | between]"
 )
 
 parser.add_argument(
@@ -49,11 +55,16 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--n_rerank", default=5, type=int, help="Top-k sentences to retrieve for reranking"
+    "--n_rerank", 
+    default=5, 
+    type=int, 
+    help="Top-k sentences to retrieve for reranking"
 )
 
 parser.add_argument(
-    "--use_gpu", action="store_true", help="Use Faiss-gpu instead of cpu"
+    "--use_gpu", 
+    action="store_true", 
+    help="Use Faiss-gpu instead of cpu"
 )
 
 parser.add_argument(

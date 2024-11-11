@@ -5,10 +5,10 @@ import re
 import sqlite3
 import unicodedata
 import uuid
-from typing import Dict, List, Tuple
 
 import faiss
 import pandas as pd
+from typing import Dict, List, Tuple
 
 from src.tools.monitor_utils import ProcessMonitor, format_size
 
@@ -61,7 +61,9 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--use_gpu", action="store_true", help="Use Faiss-gpu instead of cpu"
+    "--use_gpu", 
+    action="store_true", 
+    help="Use Faiss-gpu instead of cpu"
 )
 
 
@@ -75,7 +77,6 @@ args = parser.parse_args()
 
 DB_PATH = os.path.join("data", "db_files", args.setting + ".db")
 
-
 def load_documents() -> Dict[str, str]:
     """
     Load documents from the dataset.
@@ -84,10 +85,7 @@ def load_documents() -> Dict[str, str]:
         dict: A dictionary containing document IDs as keys and document titles and texts as values.
     """
     tsv_path = os.path.join(
-        "data",
-        "jpq_doc",
-        f"enwiki-{args.dataset_name}-dataset",
-        args.setting + "-docs.tsv",
+        "data", "jpq_doc", f"enwiki-{args.dataset_name}-dataset", args.setting + "-docs.tsv"
     )
     # Check if preprocessing happened, otherwise use the HoVer db file
     if os.path.isfile(tsv_path):
@@ -176,9 +174,7 @@ def format_for_claim_verification(
         json.dump(claim_results, f)
 
 
-def format_for_sent_retrieval(
-    results: Dict, queries: Dict, corpus: Dict, claim_json: List, data_split: str
-) -> None:
+def format_for_sent_retrieval(results: Dict, queries: Dict, corpus: Dict, claim_json: List, data_split: str) -> None:
     """
     Format retrieval results for sentence retrieval stage.
 
@@ -192,7 +188,6 @@ def format_for_sent_retrieval(
     Returns:
         None
     """
-
     def get_supp_facts_by_uid(uid, claim_json):
         for item in claim_json:
             if item["uid"] == uid:
@@ -234,12 +229,7 @@ def format_for_sent_retrieval(
 
 
 def search_and_generate_results(
-    model: JPQDualEncoder,
-    corpus: Dict,
-    queries: Dict,
-    claim_json: List,
-    batch_size: int,
-    data_split: str,
+    model: JPQDualEncoder, corpus: Dict, queries: Dict, claim_json: List, batch_size: int, data_split: str
 ):
     """
     Search for relevant documents and generate retrieval results.
@@ -313,9 +303,7 @@ def main():
             model, corpus, queries, claim_json, args.batch_size, args.data_split
         )
     else:
-        claim_json, queries = load_queries(
-            f"{args.dataset_name}_train_release_v1.1.json"
-        )
+        claim_json, queries = load_queries(f"{args.dataset_name}_train_release_v1.1.json")
         search_and_generate_results(model, corpus, queries, claim_json, 128, "train")
         claim_json, queries = load_queries(f"{args.dataset_name}_dev_release_v1.1.json")
         search_and_generate_results(model, corpus, queries, claim_json, 1, "dev")
